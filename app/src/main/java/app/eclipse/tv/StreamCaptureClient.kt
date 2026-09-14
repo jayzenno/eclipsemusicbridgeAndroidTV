@@ -29,12 +29,12 @@ class StreamCaptureClient(
 
     private fun isAudioUrl(url: String): Boolean {
         val lower = url.lowercase()
-        return lower.startsWith("http://") || lower.startsWith("https://") && (
-            lower.contains(".m3u8") || lower.contains(".mpd") ||
-                lower.contains(".mp3") || lower.contains(".m4a") ||
-                lower.contains(".aac") || lower.contains(".flac") ||
-                lower.contains(".ogg") || lower.contains("audio") ||
-                lower.contains("stream") || lower.contains("/play")
-            )
+        val isHttp = lower.startsWith("http://") || lower.startsWith("https://")
+        if (!isHttp) return false
+        return lower.contains(".m3u8") || lower.contains(".mpd") ||
+            lower.contains(".mp3") || lower.contains(".m4a") ||
+            lower.contains(".aac") || lower.contains(".flac") ||
+            lower.contains(".ogg") || lower.contains("audio") ||
+            lower.contains("stream") || lower.contains("/play")
     }
 }
