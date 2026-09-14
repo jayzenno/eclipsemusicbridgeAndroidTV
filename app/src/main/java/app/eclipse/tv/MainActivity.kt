@@ -24,13 +24,10 @@ class MainActivity : Activity() {
     private lateinit var nowTitle: TextView
     private lateinit var nowArtist: TextView
     private val handler = Handler(Looper.getMainLooper())
-    private var nativePlaying = false
     private val metadataPoll = object : Runnable {
         override fun run() {
             if (::webView.isInitialized) {
-                webView.evaluateJavascript(
-                    "(function(){var t=document.querySelector('[data-testid*=\\\"title\\\" i],[class*=\\\"track-title\\\" i]')?.textContent||document.querySelector('meta[property=\\\"og:title\\\"]')?.content||document.title||'';var a=document.querySelector('[data-testid*=\\\"artist\\\" i],[class*=\\\"artist\\\" i]')?.textContent||'';return JSON.stringify({t:t.trim(),a:a.trim()});})()"
-                ) { raw ->
+                webView.evaluateJavascript("(function(){var t=document.querySelector('[data-testid*=\\\"title\\\" i],[class*=\\\"track-title\\\" i]')?.textContent||document.querySelector('meta[property=\\\"og:title\\\"]')?.content||document.title||'';var a=document.querySelector('[data-testid*=\\\"artist\\\" i],[class*=\\\"artist\\\" i]')?.textContent||'';return JSON.stringify({t:t.trim(),a:a.trim()});})()") { raw ->
                     try {
                         val json = JSONObject(raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\""))
                         val title = json.optString("t").trim()
@@ -47,13 +44,11 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
-
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
         buildNowPlayingOverlay(root)
         setContentView(root)
-
         configureWebView()
         PlaybackBridge.connect(this)
         if (savedInstanceState == null) webView.loadUrl("https://eclipsemusic.app/web/") else webView.restoreState(savedInstanceState)
@@ -121,8 +116,6 @@ class MainActivity : Activity() {
     }
 
     private fun startNativePlayback(url: String) {
-        if (nativePlaying) return
-        nativePlaying = true
         val title = nowTitle.text.toString().takeIf { it.isNotBlank() }
         val artist = nowArtist.text.toString().takeIf { it.isNotBlank() }
         PlaybackBridge.playUrl(this, url, title, artist)
