@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private var lastAlbum = ""
     private var lastArtwork = ""
     private var lastPlaying = false
+    private var lastCapturedAudioUrl = ""
 
     private val nowPlayingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -44,9 +45,7 @@ class MainActivity : Activity() {
                 lastAlbum = album
                 if (art.isNotBlank()) lastArtwork = art
                 lastPlaying = playing
-                if (changed) {
-                    nowPlaying.show(title, artist, album, effectiveArt, playing)
-                }
+                if (changed) nowPlaying.show(title, artist, album, effectiveArt, playing)
             }
         }
     }
@@ -83,12 +82,7 @@ class MainActivity : Activity() {
                                 lastAlbum = album
                                 if (artwork.isNotBlank()) lastArtwork = artwork
                                 nowPlaying.show(title, artist, album, effectiveArtwork, lastPlaying || true)
-                                PlaybackBridge.updateMetadata(
-                                    this@MainActivity,
-                                    title,
-                                    artist,
-                                    effectiveArtwork
-                                )
+                                PlaybackBridge.updateMetadata(this@MainActivity, title, artist, effectiveArtwork)
                             }
                         }
                     } catch (_: Exception) { }
@@ -147,17 +141,19 @@ class MainActivity : Activity() {
     }
 
     private fun startNativePlayback(url: String) {
+        if (url == lastCapturedAudioUrl) return
+        lastCapturedAudioUrl = url
+
+        // Stop WebView playback before handing the stream to Media3.
+        // This removes the old overlap window during rapid track changes.
+        webView.evaluateJavascript(
+            "document.querySelectorAll('audio,video').forEach(e=>{try{e.pause();e.currentTime=0;e.muted=true;}catch(_){}});",
+            null
+        )
+
         val title = lastTitle.takeIf { it.isNotBlank() }
         val artist = lastArtist.takeIf { it.isNotBlank() }
         PlaybackBridge.playUrl(this, url, title, artist, lastArtwork.takeIf { it.isNotBlank() })
-        handler.postDelayed({
-            if (::webView.isInitialized) {
-                webView.evaluateJavascript(
-                    "document.querySelectorAll('audio,video').forEach(e=>{e.pause();e.muted=true;});",
-                    null
-                )
-            }
-        }, 150)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
