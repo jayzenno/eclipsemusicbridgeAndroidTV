@@ -8,12 +8,18 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 
 class StreamCaptureClient(
-    private val onAudioUrl: (String) -> Unit
+    private val onAudioUrl: (String) -> Unit,
+    private val onPageReady: (() -> Unit)? = null
 ) : WebViewClient() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastUrl: String? = null
     private var pendingUrl: String? = null
     private var pendingRunnable: Runnable? = null
+
+    override fun onPageFinished(view: WebView, url: String) {
+        super.onPageFinished(view, url)
+        onPageReady?.invoke()
+    }
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url.toString()
