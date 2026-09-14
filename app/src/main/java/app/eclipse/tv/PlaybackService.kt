@@ -14,10 +14,11 @@ class PlaybackService : MediaSessionService() {
             mediaSession = MediaSession.Builder(this, exo).build()
             exo.addListener(object : androidx.media3.common.Player.Listener {
                 override fun onMediaItemTransition(item: androidx.media3.common.MediaItem?, reason: Int) {
-                    NowPlayingStore.publish(this@PlaybackService, item)
+                    NowPlayingStore.publish(this@PlaybackService, item, exo.isPlaying)
                 }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    NowPlayingStore.publish(this@PlaybackService, exo.currentMediaItem)
+                    NowPlayingStore.publish(this@PlaybackService, exo.currentMediaItem, isPlaying)
                 }
             })
         }
