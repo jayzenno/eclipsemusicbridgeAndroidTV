@@ -1,6 +1,5 @@
 package app.eclipse.tv
 
-import android.os.PowerManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -21,12 +20,11 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val player = ExoPlayer.Builder(this)
-            .setWakeMode(PowerManager.PARTIAL_WAKE_LOCK)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
                 setAudioAttributes(audioAttributes, true)
-                setWakeMode(C.WAKE_MODE_NETWORK)
                 playWhenReady = false
             }
 
