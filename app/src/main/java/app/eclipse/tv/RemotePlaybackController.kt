@@ -42,6 +42,8 @@ object RemotePlaybackController {
                 webView.post { webView.evaluateJavascript("document.activeElement?.click();", null) }
                 return true
             }
+            // DPAD left/right intentionally remain available to the WebView for normal TV navigation.
+            // Seeking is only mapped to the dedicated rewind/fast-forward media keys above.
             else -> return false
         }
     }
