@@ -28,36 +28,51 @@ class MainActivity : Activity() {
                 webView.evaluateJavascript(
                     """(function(){
                         const m = navigator.mediaSession && navigator.mediaSession.metadata;
-                        const title = (m && m.title) || '';
-                        const artist = (m && m.artist) || '';
+                        const media = document.querySelector('audio,video');
+                        const pick = (selectors) => {
+                            for (const s of selectors) {
+                                const el = document.querySelector(s);
+                                const v = el && (el.textContent || el.getAttribute('content') || el.getAttribute('aria-label') || el.getAttribute('title'));
+                                if (v && v.trim()) return v.trim();
+                            }
+                            return '';
+                        };
+                        const title = (m && m.title) ||
+                            (media && (media.getAttribute('data-title') || media.getAttribute('title') || media.getAttribute('aria-label'))) ||
+                            pick(['[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]','[data-testid*=\"title\" i]','[class*=\"track-title\" i]','[class*=\"song-title\" i]','[class*=\"now-playing\" i] [class*=\"title\" i]']);
+                        const artist = (m && m.artist) ||
+                            pick(['[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]','[data-testid*=\"artist\" i]','[class*=\"track-artist\" i]','[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]']);
                         const album = (m && m.album) || '';
-                        const artwork = (m && m.artwork && m.artwork.length) ? (m.artwork[m.artwork.length - 1].src || '') : '';
-                        return JSON.stringify({t:title,a:artist,al:album,art:artwork});
+                        const artwork = (m && m.artwork && m.artwork.length) ? (m.artwork[m.artwork.length - 1].src || '') :
+                            ((media && (media.getAttribute('poster') || media.getAttribute('data-artwork'))) || '');
+                        const pageTitle = document.title || '';
+                        return JSON.stringify({t:title || pageTitle,a:artist,al:album,art:artwork});
                     })()""".trimIndent()
                 ) { raw ->
                     try {
-                        val decoded = JSONObject(raw).optString("t")
-                        val artist = JSONObject(raw).optString("a")
-                        val album = JSONObject(raw).optString("al")
-                        val artwork = JSONObject(raw).optString("art")
-                        publishMetadata(decoded, artist, album, artwork)
-                    } catch (_: Exception) {
-                        // WebView may return an escaped JSON string on some Chromium builds.
-                        try {
-                            val decoded = raw.removePrefix("\"").removeSuffix("\"")
-                                .replace("\\\"", "\"").replace("\\\\", "\\")
-                            val json = JSONObject(decoded)
-                            publishMetadata(
-                                json.optString("t"),
-                                json.optString("a"),
-                                json.optString("al"),
-                                json.optString("art")
-                            )
-                        } catch (_: Exception) { }
-                    }
+                        val json = decodeJsJson(raw)
+                        publishMetadata(
+                            json.optString("t"),
+                            json.optString("a"),
+                            json.optString("al"),
+                            json.optString("art")
+                        )
+                    } catch (_: Exception) { }
                 }
             }
             handler.postDelayed(this, 500)
+        }
+    }
+
+    private fun decodeJsJson(raw: String): JSONObject {
+        return try {
+            JSONObject(raw)
+        } catch (_: Exception) {
+            JSONObject(
+                raw.removePrefix("\"").removeSuffix("\"")
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+            )
         }
     }
 
