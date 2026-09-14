@@ -23,27 +23,54 @@ class MainActivity : Activity() {
     private lateinit var nowPlaying: LinearLayout
     private lateinit var nowTitle: TextView
     private lateinit var nowArtist: TextView
+    private lateinit var nowStatus: TextView
     private val handler = Handler(Looper.getMainLooper())
+    private var lastTitle = ""
+    private var lastArtist = ""
+
     private val metadataPoll = object : Runnable {
         override fun run() {
             if (::webView.isInitialized) {
-                webView.evaluateJavascript("(function(){var t=document.querySelector('[data-testid*=\\\"title\\\" i],[class*=\\\"track-title\\\" i]')?.textContent||document.querySelector('meta[property=\\\"og:title\\\"]')?.content||document.title||'';var a=document.querySelector('[data-testid*=\\\"artist\\\" i],[class*=\\\"artist\\\" i]')?.textContent||'';return JSON.stringify({t:t.trim(),a:a.trim()});})()") { raw ->
+                webView.evaluateJavascript(
+                    """(function(){
+                        const m=navigator.mediaSession&&navigator.mediaSession.metadata;
+                        const mt=m&&m.title?m.title:'';
+                        const ma=m&&m.artist?m.artist:'';
+                        const title=mt||document.querySelector('[data-testid*=\"title\" i],[class*=\"track-title\" i],[class*=\"song-title\" i]')?.textContent||document.querySelector('meta[property=\"og:title\"]')?.content||document.title||'';
+                        const artist=ma||document.querySelector('[data-testid*=\"artist\" i],[class*=\"artist\" i],[class*=\"song-artist\" i]')?.textContent||'';
+                        return JSON.stringify({t:title.trim(),a:artist.trim()});
+                    })()""".trimIndent()
+                ) { raw ->
                     try {
-                        val json = JSONObject(raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\""))
+                        val decoded = raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
+                        val json = JSONObject(decoded)
                         val title = json.optString("t").trim()
                         val artist = json.optString("a").trim()
-                        if (title.isNotEmpty() && title != "Eclipse Music") showNowPlaying(title, artist)
+                        if (title.isNotEmpty() && title != "Eclipse Music" && title != "Eclipse TV") {
+                            showNowPlaying(title, artist)
+                            if (title != lastTitle || artist != lastArtist) {
+                                lastTitle = title
+                                lastArtist = artist
+                                PlaybackBridge.updateMetadata(this@MainActivity, title, artist)
+                            }
+                        }
                     } catch (_: Exception) { }
                 }
             }
-            handler.postDelayed(this, 700)
+            handler.postDelayed(this, 500)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        )
+
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
@@ -51,40 +78,57 @@ class MainActivity : Activity() {
         setContentView(root)
         configureWebView()
         PlaybackBridge.connect(this)
-        if (savedInstanceState == null) webView.loadUrl("https://eclipsemusic.app/web/") else webView.restoreState(savedInstanceState)
+
+        if (savedInstanceState == null) {
+            webView.loadUrl("https://eclipsemusic.app/web/")
+        } else {
+            webView.restoreState(savedInstanceState)
+        }
         handler.post(metadataPoll)
     }
 
     private fun buildNowPlayingOverlay(root: FrameLayout) {
         nowPlaying = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(42, 22, 42, 22)
-            setBackgroundColor(0xdd101014.toInt())
-            elevation = 16f
+            setPadding(44, 24, 44, 24)
+            setBackgroundColor(0xe6101014.toInt())
+            elevation = 18f
         }
         val lp = FrameLayout.LayoutParams(-1, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
-        lp.setMargins(28, 0, 28, 28)
+        lp.setMargins(32, 0, 32, 32)
         root.addView(nowPlaying, lp)
+
         val brand = TextView(this).apply {
-            text = "ECLIPSE TV  •  NOW PLAYING"
+            text = "ECLIPSE TV   •   NOW PLAYING"
             textSize = 12f
             setTextColor(0xffa7a7b0.toInt())
             typeface = Typeface.DEFAULT_BOLD
         }
         nowTitle = TextView(this).apply {
-            textSize = 26f
+            textSize = 28f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, 5, 0, 0)
         }
         nowArtist = TextView(this).apply {
-            textSize = 17f
+            textSize = 18f
             setTextColor(0xffc7c7cf.toInt())
             maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        nowStatus = TextView(this).apply {
+            text = "●  PLAYING"
+            textSize = 12f
+            setTextColor(0xffdddddd.toInt())
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 12, 0, 0)
         }
         nowPlaying.addView(brand)
         nowPlaying.addView(nowTitle)
         nowPlaying.addView(nowArtist)
+        nowPlaying.addView(nowStatus)
         nowPlaying.visibility = View.GONE
     }
 
@@ -105,7 +149,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.5"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.6"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
@@ -116,24 +160,39 @@ class MainActivity : Activity() {
     }
 
     private fun startNativePlayback(url: String) {
-        val title = nowTitle.text.toString().takeIf { it.isNotBlank() }
-        val artist = nowArtist.text.toString().takeIf { it.isNotBlank() }
+        val title = lastTitle.takeIf { it.isNotBlank() }
+        val artist = lastArtist.takeIf { it.isNotBlank() }
         PlaybackBridge.playUrl(this, url, title, artist)
-        handler.postDelayed({ webView.evaluateJavascript("document.querySelectorAll('audio,video').forEach(e=>{e.pause();e.muted=true;});", null) }, 250)
+        handler.postDelayed({
+            webView.evaluateJavascript(
+                "document.querySelectorAll('audio,video').forEach(e=>{e.pause();e.muted=true;});",
+                null
+            )
+        }, 250)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (RemotePlaybackController.handle(this, webView, keyCode)) return true
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) { webView.goBack(); return true }
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
+            webView.goBack()
+            return true
+        }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) return true
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) return true
         return super.onKeyUp(keyCode, event)
     }
 
-    override fun onSaveInstanceState(outState: Bundle) { webView.saveState(outState); super.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) {
+        webView.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
