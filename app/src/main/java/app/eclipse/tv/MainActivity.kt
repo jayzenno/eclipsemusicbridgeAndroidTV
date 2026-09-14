@@ -12,7 +12,6 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.TextView
 import org.json.JSONObject
 
 class MainActivity : Activity() {
@@ -28,38 +27,48 @@ class MainActivity : Activity() {
 
     private val metadataPoll = object : Runnable {
         override fun run() {
-            if (::webView.isInitialized) {
-                webView.evaluateJavascript(
-                    """(function(){
-                        const m = navigator.mediaSession && navigator.mediaSession.metadata;
-                        const media = document.querySelector('audio,video');
-                        const pick = (selectors) => {
-                            for (const s of selectors) {
-                                const el = document.querySelector(s);
-                                const v = el && (el.textContent || el.getAttribute('content') || el.getAttribute('aria-label') || el.getAttribute('title'));
-                                if (v && v.trim()) return v.trim();
-                            }
-                            return '';
-                        };
-                        const title = (m && m.title) ||
-                            (media && (media.getAttribute('data-title') || media.getAttribute('title') || media.getAttribute('aria-label'))) ||
-                            pick(['[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]','[data-testid*=\"title\" i]','[class*=\"track-title\" i]','[class*=\"song-title\" i]','[class*=\"now-playing\" i] [class*=\"title\" i]']);
-                        const artist = (m && m.artist) ||
-                            pick(['[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]','[data-testid*=\"artist\" i]','[class*=\"track-artist\" i]','[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]']);
-                        const album = (m && m.album) || '';
-                        const artwork = (m && m.artwork && m.artwork.length) ? (m.artwork[m.artwork.length - 1].src || '') :
-                            ((media && (media.getAttribute('poster') || media.getAttribute('data-artwork'))) || '');
-                        const pageTitle = document.title || '';
-                        return JSON.stringify({t:title || pageTitle,a:artist,al:album,art:artwork});
-                    })()""".trimIndent()
-                ) { raw ->
-                    try {
-                        val json = decodeJsJson(raw)
-                        publishMetadata(json.optString("t"), json.optString("a"), json.optString("al"), json.optString("art"))
-                    } catch (_: Exception) { }
-                }
-            }
+            if (::webView.isInitialized) captureMetadata(null)
             handler.postDelayed(this, 500)
+        }
+    }
+
+    private fun captureMetadata(after: ((String?, String?, String?, String?) -> Unit)?) {
+        webView.evaluateJavascript(
+            """(function(){
+                const m=navigator.mediaSession&&navigator.mediaSession.metadata;
+                const media=document.querySelector('audio,video');
+                const pick=(selectors)=>{
+                    for(const s of selectors){
+                        const el=document.querySelector(s);
+                        const v=el&&(el.textContent||el.getAttribute('content')||el.getAttribute('aria-label')||el.getAttribute('title'));
+                        if(v&&v.trim()) return v.trim();
+                    }
+                    return '';
+                };
+                const title=(m&&m.title)||
+                    (media&&(media.getAttribute('data-title')||media.getAttribute('title')||media.getAttribute('aria-label')))||
+                    pick(['[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]','[data-testid*=\"title\" i]','[class*=\"track-title\" i]','[class*=\"song-title\" i]','[class*=\"now-playing\" i] [class*=\"title\" i]']);
+                const artist=(m&&m.artist)||
+                    pick(['[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]','[data-testid*=\"artist\" i]','[class*=\"track-artist\" i]','[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]']);
+                const album=(m&&m.album)||'';
+                const artwork=(m&&m.artwork&&m.artwork.length)?(m.artwork[m.artwork.length-1].src||''):
+                    ((media&&(media.getAttribute('poster')||media.getAttribute('data-artwork')))||'');
+                return JSON.stringify({t:title||'',a:artist,al:album,art:artwork});
+            })()""".trimIndent()
+        ) { raw ->
+            try {
+                val json = decodeJsJson(raw)
+                val title = json.optString("t").trim()
+                val artist = json.optString("a").trim()
+                val album = json.optString("al").trim()
+                val artwork = json.optString("art").trim()
+                if (after != null) {
+                    after(title.takeIf { it.isNotBlank() }, artist.takeIf { it.isNotBlank() }, album.takeIf { it.isNotBlank() }, artwork.takeIf { it.isNotBlank() })
+                }
+                publishMetadata(title, artist, album, artwork)
+            } catch (_: Exception) {
+                after?.invoke(null, null, null, null)
+            }
         }
     }
 
@@ -121,9 +130,7 @@ class MainActivity : Activity() {
         }
         connectRoot.requestFocus()
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState)
-        }
+        if (savedInstanceState != null) webView.restoreState(savedInstanceState)
         handler.post(metadataPoll)
     }
 
@@ -150,7 +157,6 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
-        webView.requestFocus(View.FOCUS_DOWN)
         webView.webViewClient = StreamCaptureClient { url -> startNativePlayback(url) }
         webView.webChromeClient = WebChromeClient()
     }
@@ -159,7 +165,12 @@ class MainActivity : Activity() {
         if (url == lastCapturedAudioUrl) return
         lastCapturedAudioUrl = url
         webView.evaluateJavascript("document.querySelectorAll('audio,video').forEach(e=>{try{e.pause();e.currentTime=0;e.muted=true;}catch(_){}});", null)
-        PlaybackBridge.playUrl(this, url, lastTitle.takeIf { it.isNotBlank() }, lastArtist.takeIf { it.isNotBlank() }, lastArtwork.takeIf { it.isNotBlank() })
+        captureMetadata { title, artist, _, artwork ->
+            val effectiveTitle = title ?: lastTitle.takeIf { it.isNotBlank() }
+            val effectiveArtist = artist ?: lastArtist.takeIf { it.isNotBlank() }
+            val effectiveArtwork = artwork ?: lastArtwork.takeIf { it.isNotBlank() }
+            PlaybackBridge.playUrl(this, url, effectiveTitle, effectiveArtist, effectiveArtwork)
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
