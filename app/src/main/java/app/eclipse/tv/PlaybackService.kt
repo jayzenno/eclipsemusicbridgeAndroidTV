@@ -6,22 +6,30 @@ import androidx.media3.session.MediaSessionService
 
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
+    private var player: ExoPlayer? = null
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build()
-        mediaSession = MediaSession.Builder(this, player).build()
+        player = ExoPlayer.Builder(this).build().also { exo ->
+            mediaSession = MediaSession.Builder(this, exo).build()
+            exo.addListener(object : androidx.media3.common.Player.Listener {
+                override fun onMediaItemTransition(item: androidx.media3.common.MediaItem?, reason: Int) {
+                    NowPlayingStore.publish(this@PlaybackService, item)
+                }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    NowPlayingStore.publish(this@PlaybackService, exo.currentMediaItem)
+                }
+            })
+        }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
-        mediaSession?.run {
-            player.release()
-            release()
-        }
+        mediaSession?.release()
+        player?.release()
         mediaSession = null
+        player = null
         super.onDestroy()
     }
 }
