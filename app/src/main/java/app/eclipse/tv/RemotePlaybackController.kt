@@ -1,10 +1,13 @@
 package app.eclipse.tv
 
 import android.content.Context
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.webkit.WebView
 
 object RemotePlaybackController {
+    private var lastTrackActionAt = 0L
+
     fun handle(context: Context, webView: WebView, keyCode: Int): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
@@ -20,11 +23,19 @@ object RemotePlaybackController {
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                triggerWebPlayerAction(webView, next = true)
+                triggerTrackAction(webView, true)
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                triggerWebPlayerAction(webView, next = false)
+                triggerTrackAction(webView, false)
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                PlaybackBridge.seekBy(context, -10_000L)
+                return true
+            }
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                PlaybackBridge.seekBy(context, 10_000L)
                 return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER -> {
@@ -35,7 +46,10 @@ object RemotePlaybackController {
         }
     }
 
-    private fun triggerWebPlayerAction(webView: WebView, next: Boolean) {
+    fun triggerTrackAction(webView: WebView, next: Boolean) {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastTrackActionAt < 180L) return
+        lastTrackActionAt = now
         val script = if (next) {
             """(function(){
                 const selectors=['[aria-label*=\"Next\" i]','[aria-label*=\"Nächster\" i]','[aria-label*=\"Weiter\" i]','[data-testid*=\"next\" i]','button[title*=\"Next\" i]','button[title*=\"Weiter\" i]'];
