@@ -45,7 +45,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.4"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.5"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
@@ -64,18 +64,32 @@ class MainActivity : Activity() {
     private fun startNativePlayback(url: String) {
         android.util.Log.d("EclipseTV", "NATIVE_PLAYBACK $url")
 
+        // Start native playback immediately. Metadata is fetched in parallel so
+        // the WebView never adds a full JS round-trip to the audible start/skip path.
+        PlaybackBridge.playUrl(this, url)
+
         val metadataScript = """
             (function(){
               function meta(name){
                 var e=document.querySelector('meta[property="'+name+'"],meta[name="'+name+'"]');
                 return e ? e.content : '';
               }
-              return JSON.stringify({
-                title: document.title || '',
-                artist: meta('music:musician') || meta('author') || '',
-                album: meta('music:album') || '',
-                artwork: meta('og:image') || ''
-              });
+              var title = '';
+              var artist = '';
+              var album = '';
+              var artwork = meta('og:image') || '';
+              var titleSelectors = [
+                '[data-testid*="title"]','[data-test*="title"]','.track-title','.song-title',
+                '[class*="track-title"]','[class*="song-title"]','[aria-label*="song"]'
+              ];
+              for(var i=0;i<titleSelectors.length && !title;i++){
+                var e=document.querySelector(titleSelectors[i]);
+                if(e) title=(e.innerText||e.textContent||'').trim();
+              }
+              title = title || (document.title || '');
+              artist = meta('music:musician') || meta('author') || '';
+              album = meta('music:album') || '';
+              return JSON.stringify({title:title,artist:artist,album:album,artwork:artwork});
             })();
         """.trimIndent()
 
@@ -83,15 +97,14 @@ class MainActivity : Activity() {
             val metadata = runCatching {
                 val jsonText = JSONTokener(raw).nextValue() as? String ?: return@runCatching null
                 JSONObject(jsonText)
-            }.getOrNull()
+            }.getOrNull() ?: return@evaluateJavascript
 
-            PlaybackBridge.playUrl(
+            PlaybackBridge.updateMetadata(
                 this,
-                url,
-                metadata?.optString("title")?.takeIf { it.isNotBlank() },
-                metadata?.optString("artist")?.takeIf { it.isNotBlank() },
-                metadata?.optString("album")?.takeIf { it.isNotBlank() },
-                metadata?.optString("artwork")?.takeIf { it.startsWith("http") }
+                metadata.optString("title").takeIf { it.isNotBlank() },
+                metadata.optString("artist").takeIf { it.isNotBlank() },
+                metadata.optString("album").takeIf { it.isNotBlank() },
+                metadata.optString("artwork").takeIf { it.startsWith("http") }
             )
         }
 
@@ -102,7 +115,35 @@ class MainActivity : Activity() {
                     null
                 )
             }
-        }, 150L)
+        }, 80L)
+    }
+
+    private fun dispatchEclipseTransport(action: String): Boolean {
+        val script = """
+            (function(){
+              var action='$action';
+              var labels = action==='next'
+                ? ['next','skip next','next track','weiter','nächster','naechster']
+                : ['previous','prev','skip previous','previous track','zurück','zurueck','vorheriger'];
+              var nodes = Array.prototype.slice.call(document.querySelectorAll('button,[role="button"],a,[aria-label],[title]'));
+              function text(n){return ((n.getAttribute('aria-label')||'')+' '+(n.getAttribute('title')||'')+' '+(n.innerText||'')).toLowerCase().trim();}
+              for(var i=0;i<nodes.length;i++){
+                var t=text(nodes[i]);
+                for(var j=0;j<labels.length;j++){
+                  if(t===labels[j] || t.indexOf(labels[j])!==-1){
+                    nodes[i].click();
+                    return 'true';
+                  }
+                }
+              }
+              return 'false';
+            })();
+        """.trimIndent()
+        var handled = false
+        webView.evaluateJavascript(script) { result -> handled = result == "\"true\"" }
+        // The JS callback is asynchronous; the known Eclipse control is preferred.
+        // Return true here to prevent a second native transport command from racing it.
+        return true
     }
 
     private fun injectTvNavigation() {
@@ -112,15 +153,30 @@ class MainActivity : Activity() {
               var s=document.createElement('style');
               s.id='eclipse-tv-style';
               s.textContent=`
-                html,body{overscroll-behavior:none;}
-                button,a,[role="button"],[tabindex]{outline-offset:6px;}
+                html,body{overscroll-behavior:none;scroll-behavior:auto !important;}
+                body{padding:0 !important;}
+                button,a,[role="button"],[tabindex]{outline-offset:7px;}
                 button:focus,a:focus,[role="button"]:focus,[tabindex]:focus{
                   outline:3px solid currentColor !important;
-                  outline-offset:6px !important;
+                  outline-offset:7px !important;
+                  transform:scale(1.035);
+                  transition:transform 80ms linear;
+                  z-index:20 !important;
+                  position:relative;
                 }
-                button,[role="button"]{min-height:44px;}
+                button,[role="button"]{min-height:48px;min-width:48px;}
+                input,select{min-height:48px;font-size:16px;}
+                img{image-rendering:auto;}
+                [class*="card"],[class*="Card"],[class*="tile"],[class*="Tile"]{
+                  scroll-margin:72px;
+                }
               `;
               document.head.appendChild(s);
+
+              document.addEventListener('keydown',function(e){
+                if(e.key==='MediaTrackNext'){e.preventDefault();}
+                if(e.key==='MediaTrackPrevious'){e.preventDefault();}
+              },true);
             })();
         """.trimIndent()
         webView.evaluateJavascript(script, null)
@@ -133,11 +189,11 @@ class MainActivity : Activity() {
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                PlaybackBridge.next(this)
+                dispatchEclipseTransport("next")
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                PlaybackBridge.previous(this)
+                dispatchEclipseTransport("previous")
                 return true
             }
             KeyEvent.KEYCODE_BACK -> {
