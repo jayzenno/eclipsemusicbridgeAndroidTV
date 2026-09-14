@@ -20,16 +20,10 @@ jobs:
           java-version: '17'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-      - name: Build APK with Debug Info
-        run: gradle assembleDebug --stacktrace --debug 2>&1 | tee build.log || true
-      - name: Show full build log on failure
-        if: always()
-        run: |
-          echo "=== FULL BUILD LOG ==="
-          cat build.log | tail -500
+      - name: Build APK
+        run: gradle assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: eclipse-tv-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
