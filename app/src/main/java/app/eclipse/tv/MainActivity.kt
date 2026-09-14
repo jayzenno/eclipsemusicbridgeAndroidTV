@@ -11,21 +11,37 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
+import android.widget.TextView
+import android.graphics.Color
 import org.json.JSONObject
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
+    private lateinit var root: FrameLayout
+    private lateinit var connectProbe: ConnectProbe
+    private lateinit var probeView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var lastTitle = ""
     private var lastArtist = ""
     private var lastAlbum = ""
     private var lastArtwork = ""
     private var lastCapturedAudioUrl = ""
+    private var probeVisible = false
 
     private val metadataPoll = object : Runnable {
         override fun run() {
             if (::webView.isInitialized) captureMetadata(null)
             handler.postDelayed(this, 350)
+        }
+    }
+
+    private val connectProbePoll = object : Runnable {
+        override fun run() {
+            if (::webView.isInitialized) {
+                webView.evaluateJavascript(ConnectProbe.script(), null)
+                if (probeVisible) refreshProbeOverlay()
+            }
+            handler.postDelayed(this, 2000)
         }
     }
 
@@ -45,20 +61,8 @@ class MainActivity : Activity() {
                 const artwork=(m&&m.artwork&&m.artwork.length)
                     ? (m.artwork[m.artwork.length-1].src||'')
                     : ((media&&(media.getAttribute('poster')||media.getAttribute('data-artwork')))||'');
-                const title=clean(m&&m.title)||
-                    first([
-                        '[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]',
-                        '[data-testid*=\"now-playing-title\" i]','[data-testid*=\"current-track\" i]',
-                        '[class*=\"track-title\" i]','[class*=\"song-title\" i]',
-                        '[class*=\"now-playing\" i] [class*=\"title\" i]',
-                        '[aria-label*=\"Now playing\" i]'
-                    ]) || clean(document.querySelector('meta[property=\"og:title\"]')?.content);
-                const artist=clean(m&&m.artist)||
-                    first([
-                        '[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]',
-                        '[data-testid*=\"now-playing-artist\" i]','[class*=\"track-artist\" i]',
-                        '[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]'
-                    ]);
+                const title=clean(m&&m.title)||first(['[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]','[data-testid*=\"now-playing-title\" i]','[data-testid*=\"current-track\" i]','[class*=\"track-title\" i]','[class*=\"song-title\" i]','[class*=\"now-playing\" i] [class*=\"title\" i]'])||clean(document.querySelector('meta[property=\"og:title\"]')?.content);
+                const artist=clean(m&&m.artist)||first(['[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]','[data-testid*=\"now-playing-artist\" i]','[class*=\"track-artist\" i]','[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]']);
                 const album=clean(m&&m.album)||first(['[data-testid*=\"track-album\" i]','[class*=\"track-album\" i]']);
                 const generic=/^(eclipse|eclipse music|eclipse tv|music player)$/i;
                 const t=generic.test(title)?'':title;
@@ -71,9 +75,7 @@ class MainActivity : Activity() {
                 val artist = json.optString("a").trim()
                 val album = json.optString("al").trim()
                 val artwork = json.optString("art").trim()
-                if (after != null) {
-                    after(title.takeIf { it.isNotBlank() }, artist.takeIf { it.isNotBlank() }, album.takeIf { it.isNotBlank() }, artwork.takeIf { it.isNotBlank() })
-                }
+                if (after != null) after(title.takeIf { it.isNotBlank() }, artist.takeIf { it.isNotBlank() }, album.takeIf { it.isNotBlank() }, artwork.takeIf { it.isNotBlank() })
                 publishMetadata(title, artist, album, artwork)
             } catch (_: Exception) {
                 after?.invoke(null, null, null, null)
@@ -81,26 +83,19 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun decodeJsJson(raw: String): JSONObject {
-        return try {
-            JSONObject(raw)
-        } catch (_: Exception) {
-            JSONObject(raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"").replace("\\\\", "\\"))
-        }
+    private fun decodeJsJson(raw: String): JSONObject = try {
+        JSONObject(raw)
+    } catch (_: Exception) {
+        JSONObject(raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"").replace("\\\\", "\\"))
     }
 
     private fun publishMetadata(titleRaw: String, artistRaw: String, albumRaw: String, artworkRaw: String) {
-        val title = titleRaw.trim()
-        val artist = artistRaw.trim()
-        val album = albumRaw.trim()
-        val artwork = artworkRaw.trim()
+        val title = titleRaw.trim(); val artist = artistRaw.trim(); val album = albumRaw.trim(); val artwork = artworkRaw.trim()
         if (title.isBlank()) return
         val effectiveArtwork = artwork.ifBlank { lastArtwork }
         val changed = title != lastTitle || artist != lastArtist || album != lastAlbum || effectiveArtwork != lastArtwork
         if (!changed) return
-        lastTitle = title
-        lastArtist = artist
-        lastAlbum = album
+        lastTitle = title; lastArtist = artist; lastAlbum = album
         if (artwork.isNotBlank()) lastArtwork = artwork
         PlaybackBridge.updateMetadata(this, title, artist, effectiveArtwork)
     }
@@ -108,28 +103,32 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        )
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
 
-        val root = FrameLayout(this)
+        root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
 
+        connectProbe = ConnectProbe()
+        probeView = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0xee111111.toInt())
+            textSize = 14f
+            setPadding(28, 22, 28, 22)
+            visibility = View.GONE
+            isFocusable = false
+        }
+        val probeParams = FrameLayout.LayoutParams(-1, -2).apply { leftMargin = 40; rightMargin = 40; topMargin = 40 }
+        root.addView(probeView, probeParams)
+
         configureWebView()
         PlaybackBridge.connect(this)
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState)
-        } else {
-            webView.loadUrl("https://eclipsemusic.app/web/")
-        }
+        if (savedInstanceState != null) webView.restoreState(savedInstanceState) else webView.loadUrl("https://eclipsemusic.app/web/")
         webView.requestFocus(View.FOCUS_DOWN)
         handler.post(metadataPoll)
+        handler.post(connectProbePoll)
     }
 
     private fun configureWebView() {
@@ -142,13 +141,25 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.9"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/2.0"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
+        webView.addJavascriptInterface(connectProbe, "EclipseConnectProbe")
         webView.webViewClient = StreamCaptureClient { url -> startNativePlayback(url) }
         webView.webChromeClient = WebChromeClient()
+    }
+
+    private fun refreshProbeOverlay() {
+        val lines = connectProbe.snapshot().takeLast(12)
+        probeView.text = "CONNECT DISCOVERY\n\n" + if (lines.isEmpty()) "Waiting for Eclipse Connect traffic…" else lines.joinToString("\n")
+    }
+
+    private fun toggleProbe() {
+        probeVisible = !probeVisible
+        probeView.visibility = if (probeVisible) View.VISIBLE else View.GONE
+        if (probeVisible) refreshProbeOverlay()
     }
 
     private fun startNativePlayback(url: String) {
@@ -156,46 +167,33 @@ class MainActivity : Activity() {
         lastCapturedAudioUrl = url
         webView.evaluateJavascript("document.querySelectorAll('audio,video').forEach(e=>{try{e.pause();e.currentTime=0;e.muted=true;}catch(_){}});", null)
         captureMetadata { title, artist, _, artwork ->
-            val effectiveTitle = title ?: lastTitle.takeIf { it.isNotBlank() }
-            val effectiveArtist = artist ?: lastArtist.takeIf { it.isNotBlank() }
-            val effectiveArtwork = artwork ?: lastArtwork.takeIf { it.isNotBlank() }
-            PlaybackBridge.playUrl(this, url, effectiveTitle, effectiveArtist, effectiveArtwork)
+            PlaybackBridge.playUrl(this, url, title ?: lastTitle.takeIf { it.isNotBlank() }, artist ?: lastArtist.takeIf { it.isNotBlank() }, artwork ?: lastArtwork.takeIf { it.isNotBlank() })
         }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && ::webView.isInitialized) {
+            if (event.keyCode == KeyEvent.KEYCODE_MENU) { toggleProbe(); return true }
             if (RemotePlaybackController.handle(this, webView, event.keyCode)) return true
         }
         return super.dispatchKeyEvent(event)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            webView.goBack()
-            return true
-        }
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) { webView.goBack(); return true }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) return true
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) return true
         return super.onKeyUp(keyCode, event)
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        webView.saveState(outState)
-        super.onSaveInstanceState(outState)
-    }
+    override fun onSaveInstanceState(outState: Bundle) { webView.saveState(outState); super.onSaveInstanceState(outState) }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        webView.stopLoading()
-        webView.loadUrl("about:blank")
-        webView.destroy()
+        webView.stopLoading(); webView.loadUrl("about:blank"); webView.destroy()
         PlaybackBridge.release()
         super.onDestroy()
     }
