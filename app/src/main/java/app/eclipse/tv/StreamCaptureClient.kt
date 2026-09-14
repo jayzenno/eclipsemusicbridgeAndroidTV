@@ -23,7 +23,7 @@ class StreamCaptureClient(
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url.toString()
-        if (isAudioUrl(url)) {
+        if (request.method.equals("GET", ignoreCase = true) && isAudioUrl(url)) {
             mainHandler.post { scheduleAudioUrl(url) }
         }
         return super.shouldInterceptRequest(view, request)
@@ -43,7 +43,9 @@ class StreamCaptureClient(
             onAudioUrl(target)
         }
         pendingRunnable = runnable
-        mainHandler.postDelayed(runnable, 180L)
+        // Short debounce keeps rapid duplicate segment requests from restarting
+        // playback while adding almost no perceived delay to a real track change.
+        mainHandler.postDelayed(runnable, 60L)
     }
 
     fun release() {
@@ -56,10 +58,12 @@ class StreamCaptureClient(
         val lower = url.lowercase()
         val isHttp = lower.startsWith("http://") || lower.startsWith("https://")
         if (!isHttp) return false
-        return lower.contains(".m3u8") || lower.contains(".mpd") ||
-            lower.contains(".mp3") || lower.contains(".m4a") ||
-            lower.contains(".aac") || lower.contains(".flac") ||
-            lower.contains(".ogg") || lower.contains("audio") ||
-            lower.contains("stream") || lower.contains("/play")
+
+        val path = lower.substringBefore('?').substringBefore('#')
+        return path.endsWith(".m3u8") || path.endsWith(".mpd") ||
+            path.endsWith(".mp3") || path.endsWith(".m4a") ||
+            path.endsWith(".aac") || path.endsWith(".flac") ||
+            path.endsWith(".ogg") || path.contains("/audio/") ||
+            path.contains("/stream/") || path.endsWith("/play")
     }
 }
