@@ -12,15 +12,29 @@ class StreamCaptureClient(
 ) : WebViewClient() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastUrl: String? = null
+    private var pendingUrl: String? = null
+    private var dispatchPosted = false
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url.toString()
         if (isAudioUrl(url)) {
             android.util.Log.d("EclipseTV", "AUDIO_REQUEST $url")
-            mainHandler.post {
-                if (url != lastUrl) {
-                    lastUrl = url
-                    onAudioUrl(url)
+            synchronized(this) {
+                pendingUrl = url
+                if (!dispatchPosted) {
+                    dispatchPosted = true
+                    mainHandler.post {
+                        val latest = synchronized(this) {
+                            dispatchPosted = false
+                            val value = pendingUrl
+                            pendingUrl = null
+                            value
+                        }
+                        if (!latest.isNullOrBlank() && latest != lastUrl) {
+                            lastUrl = latest
+                            onAudioUrl(latest)
+                        }
+                    }
                 }
             }
         }
