@@ -2,6 +2,7 @@ package app.eclipse.tv
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -38,19 +39,23 @@ object PlaybackBridge {
         controller?.let(action) ?: pending.add(action)
     }
 
-    fun playUrl(context: Context, url: String, title: String? = null, artist: String? = null) {
+    fun playUrl(context: Context, url: String, title: String? = null, artist: String? = null, artwork: String? = null) {
         withController(context) { c ->
-            val item = buildItem(url, title, artist)
+            val item = buildItem(url, title, artist, artwork)
             c.setMediaItem(item)
             c.prepare()
             c.play()
         }
     }
 
-    fun updateMetadata(context: Context, title: String?, artist: String?) {
+    fun updateMetadata(context: Context, title: String?, artist: String?, artwork: String? = null) {
         withController(context) { c ->
             val current = c.currentMediaItem ?: return@withController
-            c.replaceMediaItem(c.currentMediaItemIndex, buildItem(current.localConfiguration?.uri.toString(), title, artist, current.mediaId))
+            val existingArt = current.mediaMetadata.artworkUri?.toString()
+            c.replaceMediaItem(
+                c.currentMediaItemIndex,
+                buildItem(current.localConfiguration?.uri.toString(), title, artist, artwork ?: existingArt, current.mediaId)
+            )
         }
     }
 
@@ -60,10 +65,11 @@ object PlaybackBridge {
     fun next(context: Context) = withController(context) { if (it.hasNextMediaItem()) it.seekToNext() }
     fun previous(context: Context) = withController(context) { if (it.hasPreviousMediaItem()) it.seekToPrevious() }
 
-    private fun buildItem(url: String, title: String?, artist: String?, mediaId: String? = null): MediaItem {
+    private fun buildItem(url: String, title: String?, artist: String?, artwork: String?, mediaId: String? = null): MediaItem {
         val metadata = MediaMetadata.Builder()
             .setTitle(title?.takeIf { it.isNotBlank() } ?: "Eclipse")
             .setArtist(artist?.takeIf { it.isNotBlank() } ?: "Eclipse")
+            .apply { artwork?.takeIf { it.isNotBlank() }?.let { setArtworkUri(Uri.parse(it)) } }
             .build()
         return MediaItem.Builder()
             .setMediaId(mediaId ?: url)
