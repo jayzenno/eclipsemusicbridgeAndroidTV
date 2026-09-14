@@ -23,7 +23,9 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastTitle = ""
     private var lastArtist = ""
+    private var lastAlbum = ""
     private var lastArtwork = ""
+    private var lastPlaying = false
 
     private val nowPlayingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -34,10 +36,17 @@ class MainActivity : Activity() {
             val art = intent.getStringExtra(NowPlayingStore.EXTRA_ART_URI).orEmpty()
             val playing = intent.getBooleanExtra(NowPlayingStore.EXTRA_IS_PLAYING, true)
             if (title.isNotBlank()) {
+                val effectiveArt = art.ifBlank { lastArtwork }
+                val changed = title != lastTitle || artist != lastArtist || album != lastAlbum ||
+                    effectiveArt != lastArtwork || playing != lastPlaying
                 lastTitle = title
                 lastArtist = artist
+                lastAlbum = album
                 if (art.isNotBlank()) lastArtwork = art
-                nowPlaying.show(title, artist, album, art.ifBlank { lastArtwork }, playing)
+                lastPlaying = playing
+                if (changed) {
+                    nowPlaying.show(title, artist, album, effectiveArt, playing)
+                }
             }
         }
     }
@@ -65,12 +74,21 @@ class MainActivity : Activity() {
                         val album = json.optString("al").trim()
                         val artwork = json.optString("art").trim()
                         if (title.isNotEmpty() && title != "Eclipse Music" && title != "Eclipse TV") {
-                            if (artwork.isNotBlank()) lastArtwork = artwork
-                            nowPlaying.show(title, artist, album, artwork.ifBlank { lastArtwork }, true)
-                            if (title != lastTitle || artist != lastArtist || artwork != lastArtwork) {
+                            val effectiveArtwork = artwork.ifBlank { lastArtwork }
+                            val metadataChanged = title != lastTitle || artist != lastArtist ||
+                                album != lastAlbum || effectiveArtwork != lastArtwork
+                            if (metadataChanged) {
                                 lastTitle = title
                                 lastArtist = artist
-                                PlaybackBridge.updateMetadata(this@MainActivity, title, artist, artwork.ifBlank { lastArtwork })
+                                lastAlbum = album
+                                if (artwork.isNotBlank()) lastArtwork = artwork
+                                nowPlaying.show(title, artist, album, effectiveArtwork, lastPlaying || true)
+                                PlaybackBridge.updateMetadata(
+                                    this@MainActivity,
+                                    title,
+                                    artist,
+                                    effectiveArtwork
+                                )
                             }
                         }
                     } catch (_: Exception) { }
