@@ -34,6 +34,8 @@ class TvNowPlayingOverlay(private val root: FrameLayout) {
     private lateinit var next: ImageButton
     private var visible = false
     private var hideAnimator: ValueAnimator? = null
+    @Volatile private var loadedArtworkUri = ""
+    @Volatile private var requestedArtworkUri = ""
 
     init {
         panel.orientation = LinearLayout.VERTICAL
@@ -70,7 +72,7 @@ class TvNowPlayingOverlay(private val root: FrameLayout) {
     fun show(songTitle: String, songArtist: String, songAlbum: String = "", artUri: String = "", isPlaying: Boolean = true) {
         title.text = songTitle; artist.text = songArtist; album.text = songAlbum; album.visibility = if (songAlbum.isBlank()) View.GONE else View.VISIBLE
         status.text = if (isPlaying) "●  PLAYING" else "Ⅱ  PAUSED"; play.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
-        if (artUri.isNotBlank()) loadArtwork(artUri)
+        if (artUri.isNotBlank() && artUri != loadedArtworkUri) loadArtwork(artUri)
         if (!visible) { visible = true; panel.alpha = 0f; panel.visibility = View.VISIBLE; panel.animate().alpha(1f).setDuration(180).start() }
         hideAnimator?.cancel(); hideAnimator = ValueAnimator.ofFloat(1f, 0f).apply { duration = 4500; addUpdateListener { panel.alpha = it.animatedValue as Float }; start() }
     }
@@ -83,5 +85,20 @@ class TvNowPlayingOverlay(private val root: FrameLayout) {
     fun handleDpad(keyCode: Int): Boolean { if (!visible) return false; when (keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> { PlaybackBridge.previous(root.context); return true }; KeyEvent.KEYCODE_DPAD_RIGHT -> { PlaybackBridge.next(root.context); return true }; KeyEvent.KEYCODE_DPAD_CENTER -> { PlaybackBridge.playPause(root.context); return true } }; return false }
     private fun flash() { panel.animate().scaleX(0.995f).scaleY(0.995f).setDuration(60).withEndAction { panel.animate().scaleX(1f).scaleY(1f).setDuration(60).start() }.start() }
     private fun formatTime(ms: Long): String { val total = max(0L, ms) / 1000; return "%d:%02d".format(total / 60, total % 60) }
-    private fun loadArtwork(uri: String) { executor.execute { try { val bitmap = BitmapFactory.decodeStream(URL(Uri.parse(uri).toString()).openStream()); if (bitmap != null) root.post { artwork.setImageBitmap(bitmap) } } catch (_: Exception) {} } }
+    private fun loadArtwork(uri: String) {
+        requestedArtworkUri = uri
+        executor.execute {
+            try {
+                val bitmap = BitmapFactory.decodeStream(URL(Uri.parse(uri).toString()).openStream())
+                if (bitmap != null && requestedArtworkUri == uri) {
+                    root.post {
+                        if (requestedArtworkUri == uri) {
+                            artwork.setImageBitmap(bitmap)
+                            loadedArtworkUri = uri
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
+        }
+    }
 }
