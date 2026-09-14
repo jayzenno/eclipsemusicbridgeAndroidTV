@@ -6,7 +6,7 @@
     <application
         android:allowBackup="true"
         android:label="Eclipse TV"
-        android:theme="@style/Theme.EclipseTV">
+        android:theme="@style/AppTheme">
 
         <activity
             android:name=".MainActivity"
