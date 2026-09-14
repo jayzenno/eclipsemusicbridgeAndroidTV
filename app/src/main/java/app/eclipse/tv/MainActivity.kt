@@ -10,6 +10,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
@@ -27,6 +28,7 @@ class MainActivity : Activity() {
         webView = WebView(this)
         setContentView(webView)
         configureWebView()
+        PlaybackBridge.connect(this)
 
         if (savedInstanceState == null) {
             webView.loadUrl("https://eclipsemusic.app/web/")
@@ -45,7 +47,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.1"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.2"
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -74,6 +76,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         webView.destroy()
+        PlaybackBridge.release()
         super.onDestroy()
     }
 }
