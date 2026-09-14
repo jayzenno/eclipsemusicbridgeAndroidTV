@@ -1,6 +1,10 @@
 package app.eclipse.tv
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -27,6 +31,15 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastTitle = ""
     private var lastArtist = ""
+
+    private val nowPlayingReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != NowPlayingStore.ACTION_NOW_PLAYING) return
+            val title = intent.getStringExtra(NowPlayingStore.EXTRA_TITLE).orEmpty()
+            val artist = intent.getStringExtra(NowPlayingStore.EXTRA_ARTIST).orEmpty()
+            if (title.isNotBlank()) showNowPlaying(title, artist)
+        }
+    }
 
     private val metadataPoll = object : Runnable {
         override fun run() {
@@ -78,6 +91,8 @@ class MainActivity : Activity() {
         setContentView(root)
         configureWebView()
         PlaybackBridge.connect(this)
+
+        registerReceiver(nowPlayingReceiver, IntentFilter(NowPlayingStore.ACTION_NOW_PLAYING), Context.RECEIVER_NOT_EXPORTED)
 
         if (savedInstanceState == null) {
             webView.loadUrl("https://eclipsemusic.app/web/")
@@ -136,6 +151,7 @@ class MainActivity : Activity() {
         nowTitle.text = title
         nowArtist.text = artist
         nowArtist.visibility = if (artist.isBlank()) View.GONE else View.VISIBLE
+        nowStatus.text = "●  PLAYING"
         nowPlaying.visibility = View.VISIBLE
     }
 
@@ -149,7 +165,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.6"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.7"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
@@ -164,11 +180,13 @@ class MainActivity : Activity() {
         val artist = lastArtist.takeIf { it.isNotBlank() }
         PlaybackBridge.playUrl(this, url, title, artist)
         handler.postDelayed({
-            webView.evaluateJavascript(
-                "document.querySelectorAll('audio,video').forEach(e=>{e.pause();e.muted=true;});",
-                null
-            )
-        }, 250)
+            if (::webView.isInitialized) {
+                webView.evaluateJavascript(
+                    "document.querySelectorAll('audio,video').forEach(e=>{e.pause();e.muted=true;});",
+                    null
+                )
+            }
+        }, 150)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -196,6 +214,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        try { unregisterReceiver(nowPlayingReceiver) } catch (_: Exception) { }
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.destroy()
