@@ -8,7 +8,6 @@ import android.view.KeyEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 
@@ -20,16 +19,12 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        )
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
         webView = WebView(this)
         setContentView(webView)
         configureWebView()
         PlaybackBridge.connect(this)
-        if (savedInstanceState == null) webView.loadUrl("https://eclipsemusic.app/web/")
-        else webView.restoreState(savedInstanceState)
+        if (savedInstanceState == null) webView.loadUrl("https://eclipsemusic.app/web/") else webView.restoreState(savedInstanceState)
     }
 
     private fun configureWebView() {
@@ -42,7 +37,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.3"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.4"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
@@ -55,29 +50,29 @@ class MainActivity : Activity() {
     private fun startNativePlayback(url: String) {
         if (nativePlaying) return
         nativePlaying = true
-        android.util.Log.d("EclipseTV", "NATIVE_PLAYBACK $url")
         PlaybackBridge.playUrl(this, url)
-        handler.postDelayed({
-            webView.evaluateJavascript(
-                "document.querySelectorAll('audio,video').forEach(function(e){e.pause();e.muted=true;});",
-                null
-            )
-        }, 250)
+        handler.postDelayed({ webView.evaluateJavascript("document.querySelectorAll('audio,video').forEach(e=>{e.pause();e.muted=true;});", null) }, 250)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            webView.goBack(); return true
-        }
+        if (RemotePlaybackController.handle(webView, keyCode)) return true
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) { webView.goBack(); return true }
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        webView.saveState(outState); super.onSaveInstanceState(outState)
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) return true
+        return super.onKeyUp(keyCode, event)
     }
+
+    override fun onSaveInstanceState(outState: Bundle) { webView.saveState(outState); super.onSaveInstanceState(outState) }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        webView.destroy(); PlaybackBridge.release(); super.onDestroy()
+        webView.stopLoading()
+        webView.loadUrl("about:blank")
+        webView.destroy()
+        PlaybackBridge.release()
+        super.onDestroy()
     }
 }
