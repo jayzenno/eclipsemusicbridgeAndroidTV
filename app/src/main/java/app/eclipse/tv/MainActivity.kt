@@ -63,19 +63,28 @@ class MainActivity : Activity() {
     private fun startNativePlayback(url: String) {
         android.util.Log.d("EclipseTV", "NATIVE_PLAYBACK $url")
 
-        // Pull whatever metadata Eclipse already exposes in the page. This makes the
-        // native MediaSession useful to TV launchers without requiring Eclipse changes.
         val metadataScript = """
             (function(){
               function meta(name){
                 var e=document.querySelector('meta[property="'+name+'"],meta[name="'+name+'"]');
                 return e ? e.content : '';
               }
+              function text(selectors){
+                for(var i=0;i<selectors.length;i++){
+                  var e=document.querySelector(selectors[i]);
+                  if(e && e.textContent && e.textContent.trim()) return e.textContent.trim();
+                }
+                return '';
+              }
+              function image(){
+                var e=document.querySelector('img[alt*="album" i],img[alt*="cover" i],img[src*="cover" i]');
+                return e ? (e.currentSrc || e.src || '') : (meta('og:image') || '');
+              }
               return JSON.stringify({
-                title: document.title || '',
-                artist: meta('music:musician') || meta('author') || '',
-                album: meta('music:album') || '',
-                artwork: meta('og:image') || ''
+                title: text(['[data-testid*="track"]','[class*="track-title"]','[class*="song-title"]','[aria-label*="track" i]']) || document.title || '',
+                artist: text(['[data-testid*="artist"]','[class*="artist"]','[aria-label*="artist" i]']) || meta('music:musician') || meta('author') || '',
+                album: text(['[data-testid*="album"]','[class*="album"]','[aria-label*="album" i]']) || meta('music:album') || '',
+                artwork: image()
               });
             })();
         """.trimIndent()
@@ -95,7 +104,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // The WebView must not decode the same stream in parallel with ExoPlayer.
         handler.postDelayed({
             if (!isFinishing && !isDestroyed) {
                 webView.evaluateJavascript(
@@ -103,7 +111,7 @@ class MainActivity : Activity() {
                     null
                 )
             }
-        }, 250L)
+        }, 150L)
     }
 
     private fun injectTvNavigation() {
@@ -122,24 +130,41 @@ class MainActivity : Activity() {
                 button,[role="button"]{min-height:44px;}
               `;
               document.head.appendChild(s);
-              document.documentElement.style.setProperty('scroll-behavior','smooth');
             })();
         """.trimIndent()
         webView.evaluateJavascript(script, null)
     }
 
+    private fun sendEclipseMediaCommand(command: String, fallback: () -> Unit) {
+        val script = """
+            (function(){
+              var wanted = $command;
+              var nodes = Array.prototype.slice.call(document.querySelectorAll('button,a,[role="button"]'));
+              var hit = nodes.find(function(e){
+                var label = ((e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')+' '+(e.textContent||'')).toLowerCase();
+                return wanted.some(function(x){ return label.indexOf(x)>=0; });
+              });
+              if(hit){ hit.click(); return '1'; }
+              return '0';
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(script) { result ->
+            if (result != "\"1\"") fallback()
+        }
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                PlaybackBridge.playPause(this)
+                sendEclipseMediaCommand("['play','pause']") { PlaybackBridge.playPause(this) }
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                PlaybackBridge.next(this)
+                sendEclipseMediaCommand("['next','skip forward','skip next']") { PlaybackBridge.next(this) }
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                PlaybackBridge.previous(this)
+                sendEclipseMediaCommand("['previous','prev','skip back','skip previous']") { PlaybackBridge.previous(this) }
                 return true
             }
             KeyEvent.KEYCODE_BACK -> {
@@ -161,8 +186,6 @@ class MainActivity : Activity() {
         handler.removeCallbacksAndMessages(null)
         streamCaptureClient.release()
         webView.destroy()
-        // Deliberately keep the MediaSession/ExoPlayer alive. Background audio must
-        // survive the Activity leaving the foreground.
         super.onDestroy()
     }
 }
