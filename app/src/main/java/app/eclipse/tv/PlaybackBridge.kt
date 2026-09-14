@@ -57,8 +57,8 @@ object PlaybackBridge {
     fun play(context: Context) = withController(context) { it.play() }
     fun pause(context: Context) = withController(context) { it.pause() }
     fun playPause(context: Context) = withController(context) { if (it.isPlaying) it.pause() else it.play() }
-    fun next(context: Context) = withController(context) { if (it.hasNextMediaItem) it.seekToNext() }
-    fun previous(context: Context) = withController(context) { if (it.hasPreviousMediaItem) it.seekToPrevious() }
+    fun next(context: Context) = withController(context) { if (it.hasNextMediaItem()) it.seekToNext() }
+    fun previous(context: Context) = withController(context) { if (it.hasPreviousMediaItem()) it.seekToPrevious() }
 
     private fun buildItem(url: String, title: String?, artist: String?, mediaId: String? = null): MediaItem {
         val metadata = MediaMetadata.Builder()
