@@ -2,6 +2,8 @@ package app.eclipse.tv
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.CookieManager
@@ -9,10 +11,11 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
+    private val handler = Handler(Looper.getMainLooper())
+    private var nativePlaying = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,16 +42,27 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.2"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.3"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
         webView.isFocusableInTouchMode = true
         webView.requestFocus(View.FOCUS_DOWN)
-        webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = false
-        }
+        webView.webViewClient = StreamCaptureClient { url -> startNativePlayback(url) }
         webView.webChromeClient = WebChromeClient()
+    }
+
+    private fun startNativePlayback(url: String) {
+        if (nativePlaying) return
+        nativePlaying = true
+        android.util.Log.d("EclipseTV", "NATIVE_PLAYBACK $url")
+        PlaybackBridge.playUrl(this, url)
+        handler.postDelayed({
+            webView.evaluateJavascript(
+                "document.querySelectorAll('audio,video').forEach(function(e){e.pause();e.muted=true;});",
+                null
+            )
+        }, 250)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -63,6 +77,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         webView.destroy(); PlaybackBridge.release(); super.onDestroy()
     }
 }
