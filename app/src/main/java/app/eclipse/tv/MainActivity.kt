@@ -11,6 +11,8 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import org.json.JSONObject
 
 class MainActivity : Activity() {
@@ -21,6 +23,8 @@ class MainActivity : Activity() {
     private var lastAlbum = ""
     private var lastArtwork = ""
     private var lastCapturedAudioUrl = ""
+    private var showingConnect = true
+    private lateinit var connectRoot: LinearLayout
 
     private val metadataPoll = object : Runnable {
         override fun run() {
@@ -51,12 +55,7 @@ class MainActivity : Activity() {
                 ) { raw ->
                     try {
                         val json = decodeJsJson(raw)
-                        publishMetadata(
-                            json.optString("t"),
-                            json.optString("a"),
-                            json.optString("al"),
-                            json.optString("art")
-                        )
+                        publishMetadata(json.optString("t"), json.optString("a"), json.optString("al"), json.optString("art"))
                     } catch (_: Exception) { }
                 }
             }
@@ -68,11 +67,7 @@ class MainActivity : Activity() {
         return try {
             JSONObject(raw)
         } catch (_: Exception) {
-            JSONObject(
-                raw.removePrefix("\"").removeSuffix("\"")
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\")
-            )
+            JSONObject(raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"").replace("\\\\", "\\"))
         }
     }
 
@@ -82,11 +77,9 @@ class MainActivity : Activity() {
         val album = albumRaw.trim()
         val artwork = artworkRaw.trim()
         if (title.isBlank() || title.equals("Eclipse Music", true) || title.equals("Eclipse TV", true)) return
-
         val effectiveArtwork = artwork.ifBlank { lastArtwork }
         val changed = title != lastTitle || artist != lastArtist || album != lastAlbum || effectiveArtwork != lastArtwork
         if (!changed) return
-
         lastTitle = title
         lastArtist = artist
         lastAlbum = album
@@ -107,17 +100,39 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
+
+        connectRoot = LinearLayout(this)
+        ConnectPairingScreen(connectRoot)
+        root.addView(connectRoot, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
 
         configureWebView()
         PlaybackBridge.connect(this)
 
-        if (savedInstanceState == null) {
-            webView.loadUrl("https://eclipsemusic.app/web/")
-        } else {
+        connectRoot.isFocusable = true
+        connectRoot.isFocusableInTouchMode = true
+        connectRoot.setOnClickListener { enterWebPlayer() }
+        connectRoot.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN &&
+                (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                enterWebPlayer()
+                true
+            } else false
+        }
+        connectRoot.requestFocus()
+
+        if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
         }
         handler.post(metadataPoll)
+    }
+
+    private fun enterWebPlayer() {
+        if (!showingConnect) return
+        showingConnect = false
+        connectRoot.visibility = View.GONE
+        if (webView.url == null) webView.loadUrl("https://eclipsemusic.app/web/")
+        webView.requestFocus(View.FOCUS_DOWN)
     }
 
     private fun configureWebView() {
@@ -143,39 +158,32 @@ class MainActivity : Activity() {
     private fun startNativePlayback(url: String) {
         if (url == lastCapturedAudioUrl) return
         lastCapturedAudioUrl = url
-
-        webView.evaluateJavascript(
-            "document.querySelectorAll('audio,video').forEach(e=>{try{e.pause();e.currentTime=0;e.muted=true;}catch(_){}});",
-            null
-        )
-
-        val title = lastTitle.takeIf { it.isNotBlank() }
-        val artist = lastArtist.takeIf { it.isNotBlank() }
-        PlaybackBridge.playUrl(this, url, title, artist, lastArtwork.takeIf { it.isNotBlank() })
+        webView.evaluateJavascript("document.querySelectorAll('audio,video').forEach(e=>{try{e.pause();e.currentTime=0;e.muted=true;}catch(_){}});", null)
+        PlaybackBridge.playUrl(this, url, lastTitle.takeIf { it.isNotBlank() }, lastArtist.takeIf { it.isNotBlank() }, lastArtwork.takeIf { it.isNotBlank() })
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && ::webView.isInitialized) {
+        if (event.action == KeyEvent.ACTION_DOWN && ::webView.isInitialized && !showingConnect) {
             if (RemotePlaybackController.handle(this, webView, event.keyCode)) return true
         }
         return super.dispatchKeyEvent(event)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            webView.goBack()
-            return true
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (showingConnect) return super.onKeyDown(keyCode, event)
+            if (webView.canGoBack()) {
+                webView.goBack()
+                return true
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ||
+        if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY || keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ||
             keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) return true
         return super.onKeyUp(keyCode, event)
     }
