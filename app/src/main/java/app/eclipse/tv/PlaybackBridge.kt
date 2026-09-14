@@ -57,10 +57,22 @@ object PlaybackBridge {
             val newArtwork = artwork?.takeIf { it.isNotBlank() } ?: old.artworkUri?.toString()
             if (newTitle == old.title?.toString() && newArtist == old.artist?.toString() &&
                 newArtwork == old.artworkUri?.toString()) return@withController
-            c.replaceMediaItem(
-                c.currentMediaItemIndex,
-                buildItem(current.localConfiguration?.uri.toString(), newTitle, newArtist, newArtwork, current.mediaId)
+
+            // MediaItem is immutable. Replacing it can reset the position, so restore
+            // the exact position and play/pause state after the metadata-only update.
+            val index = c.currentMediaItemIndex
+            val position = c.currentPosition.coerceAtLeast(0L)
+            val wasPlaying = c.isPlaying
+            val replacement = buildItem(
+                current.localConfiguration?.uri?.toString() ?: return@withController,
+                newTitle,
+                newArtist,
+                newArtwork,
+                current.mediaId
             )
+            c.replaceMediaItem(index, replacement)
+            c.seekTo(index, position)
+            if (wasPlaying) c.play() else c.pause()
         }
     }
 
