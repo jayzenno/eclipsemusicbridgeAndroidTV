@@ -22,9 +22,7 @@ object PlaybackBridge {
         if (controllerFuture != null) return
         val appContext = context.applicationContext
         val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
-        controllerFuture = MediaController.Builder(appContext, token)
-            .setListener(object : MediaController.Listener {})
-            .buildAsync()
+        controllerFuture = MediaController.Builder(appContext, token).buildAsync()
     }
 
     fun playUrl(
