@@ -81,7 +81,7 @@ class MainActivity : Activity() {
                                 lastArtist = artist
                                 lastAlbum = album
                                 if (artwork.isNotBlank()) lastArtwork = artwork
-                                nowPlaying.show(title, artist, album, effectiveArtwork, lastPlaying || true)
+                                nowPlaying.show(title, artist, album, effectiveArtwork, PlaybackBridge.isPlaying() || lastPlaying)
                                 PlaybackBridge.updateMetadata(this@MainActivity, title, artist, effectiveArtwork)
                             }
                         }
@@ -89,6 +89,16 @@ class MainActivity : Activity() {
                 }
             }
             handler.postDelayed(this, 700)
+        }
+    }
+
+    private val progressPoll = object : Runnable {
+        override fun run() {
+            if (::nowPlaying.isInitialized && nowPlaying.isVisible()) {
+                val duration = PlaybackBridge.getDurationMs()
+                if (duration > 0L) nowPlaying.updateProgress(PlaybackBridge.getPositionMs(), duration)
+            }
+            handler.postDelayed(this, 500)
         }
     }
 
@@ -105,7 +115,11 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
-        nowPlaying = TvNowPlayingOverlay(root)
+        nowPlaying = TvNowPlayingOverlay(
+            root,
+            onPrevious = { RemotePlaybackController.triggerTrackAction(webView, false) },
+            onNext = { RemotePlaybackController.triggerTrackAction(webView, true) }
+        )
         setContentView(root)
         configureWebView()
         PlaybackBridge.connect(this)
@@ -118,6 +132,7 @@ class MainActivity : Activity() {
             webView.restoreState(savedInstanceState)
         }
         handler.post(metadataPoll)
+        handler.post(progressPoll)
     }
 
     private fun configureWebView() {
@@ -144,8 +159,6 @@ class MainActivity : Activity() {
         if (url == lastCapturedAudioUrl) return
         lastCapturedAudioUrl = url
 
-        // Stop WebView playback before handing the stream to Media3.
-        // This removes the old overlap window during rapid track changes.
         webView.evaluateJavascript(
             "document.querySelectorAll('audio,video').forEach(e=>{try{e.pause();e.currentTime=0;e.muted=true;}catch(_){}});",
             null
@@ -157,10 +170,17 @@ class MainActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (nowPlaying.handleDpad(keyCode)) return true
         if (RemotePlaybackController.handle(this, webView, keyCode)) return true
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            webView.goBack()
-            return true
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (nowPlaying.isVisible()) {
+                nowPlaying.hide()
+                return true
+            }
+            if (webView.canGoBack()) {
+                webView.goBack()
+                return true
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -170,7 +190,9 @@ class MainActivity : Activity() {
             keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ||
             keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ||
             keyCode == KeyEvent.KEYCODE_MEDIA_NEXT ||
-            keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS) return true
+            keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_REWIND ||
+            keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) return true
         return super.onKeyUp(keyCode, event)
     }
 
