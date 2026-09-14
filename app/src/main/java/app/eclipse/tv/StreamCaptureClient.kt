@@ -12,19 +12,38 @@ class StreamCaptureClient(
 ) : WebViewClient() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastUrl: String? = null
+    private var pendingUrl: String? = null
+    private var pendingRunnable: Runnable? = null
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url.toString()
         if (isAudioUrl(url)) {
-            android.util.Log.d("EclipseTV", "AUDIO_REQUEST $url")
-            mainHandler.post {
-                if (url != lastUrl) {
-                    lastUrl = url
-                    onAudioUrl(url)
-                }
-            }
+            mainHandler.post { scheduleAudioUrl(url) }
         }
         return super.shouldInterceptRequest(view, request)
+    }
+
+    private fun scheduleAudioUrl(url: String) {
+        if (url == lastUrl || url == pendingUrl) return
+        pendingUrl = url
+        pendingRunnable?.let(mainHandler::removeCallbacks)
+        val runnable = Runnable {
+            pendingRunnable = null
+            val target = pendingUrl ?: return@Runnable
+            pendingUrl = null
+            if (target == lastUrl) return@Runnable
+            lastUrl = target
+            android.util.Log.d("EclipseTV", "AUDIO_REQUEST $target")
+            onAudioUrl(target)
+        }
+        pendingRunnable = runnable
+        mainHandler.postDelayed(runnable, 180L)
+    }
+
+    fun release() {
+        pendingRunnable?.let(mainHandler::removeCallbacks)
+        pendingRunnable = null
+        pendingUrl = null
     }
 
     private fun isAudioUrl(url: String): Boolean {
