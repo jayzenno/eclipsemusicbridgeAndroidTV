@@ -10,6 +10,7 @@ import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
+import org.json.JSONObject
 import org.json.JSONTokener
 
 class MainActivity : Activity() {
@@ -69,29 +70,19 @@ class MainActivity : Activity() {
                 var e=document.querySelector('meta[property="'+name+'"],meta[name="'+name+'"]');
                 return e ? e.content : '';
               }
-              function text(selectors){
-                for(var i=0;i<selectors.length;i++){
-                  var e=document.querySelector(selectors[i]);
-                  if(e && e.textContent && e.textContent.trim()) return e.textContent.trim();
-                }
-                return '';
-              }
-              function image(){
-                var e=document.querySelector('img[alt*="album" i],img[alt*="cover" i],img[src*="cover" i]');
-                return e ? (e.currentSrc || e.src || '') : (meta('og:image') || '');
-              }
               return JSON.stringify({
-                title: text(['[data-testid*="track"]','[class*="track-title"]','[class*="song-title"]','[aria-label*="track" i]']) || document.title || '',
-                artist: text(['[data-testid*="artist"]','[class*="artist"]','[aria-label*="artist" i]']) || meta('music:musician') || meta('author') || '',
-                album: text(['[data-testid*="album"]','[class*="album"]','[aria-label*="album" i]']) || meta('music:album') || '',
-                artwork: image()
+                title: document.title || '',
+                artist: meta('music:musician') || meta('author') || '',
+                album: meta('music:album') || '',
+                artwork: meta('og:image') || ''
               });
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(metadataScript) { raw ->
             val metadata = runCatching {
-                JSONTokener(raw).nextValue().toString().let(::org.json.JSONObject)
+                val jsonText = JSONTokener(raw).nextValue() as? String ?: return@runCatching null
+                JSONObject(jsonText)
             }.getOrNull()
 
             PlaybackBridge.playUrl(
@@ -135,36 +126,18 @@ class MainActivity : Activity() {
         webView.evaluateJavascript(script, null)
     }
 
-    private fun sendEclipseMediaCommand(command: String, fallback: () -> Unit) {
-        val script = """
-            (function(){
-              var wanted = $command;
-              var nodes = Array.prototype.slice.call(document.querySelectorAll('button,a,[role="button"]'));
-              var hit = nodes.find(function(e){
-                var label = ((e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')+' '+(e.textContent||'')).toLowerCase();
-                return wanted.some(function(x){ return label.indexOf(x)>=0; });
-              });
-              if(hit){ hit.click(); return '1'; }
-              return '0';
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(script) { result ->
-            if (result != "\"1\"") fallback()
-        }
-    }
-
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                sendEclipseMediaCommand("['play','pause']") { PlaybackBridge.playPause(this) }
+                PlaybackBridge.playPause(this)
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                sendEclipseMediaCommand("['next','skip forward','skip next']") { PlaybackBridge.next(this) }
+                PlaybackBridge.next(this)
                 return true
             }
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                sendEclipseMediaCommand("['previous','prev','skip back','skip previous']") { PlaybackBridge.previous(this) }
+                PlaybackBridge.previous(this)
                 return true
             }
             KeyEvent.KEYCODE_BACK -> {
@@ -186,6 +159,8 @@ class MainActivity : Activity() {
         handler.removeCallbacksAndMessages(null)
         streamCaptureClient.release()
         webView.destroy()
+        // Deliberately keep the MediaSession/ExoPlayer alive. Background audio must
+        // survive the Activity leaving the foreground.
         super.onDestroy()
     }
 }
