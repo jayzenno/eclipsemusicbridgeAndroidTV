@@ -5,12 +5,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
-import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.CookieManager
@@ -18,26 +15,30 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
 import org.json.JSONObject
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
-    private lateinit var nowPlaying: LinearLayout
-    private lateinit var nowTitle: TextView
-    private lateinit var nowArtist: TextView
-    private lateinit var nowStatus: TextView
+    private lateinit var nowPlaying: TvNowPlayingOverlay
     private val handler = Handler(Looper.getMainLooper())
     private var lastTitle = ""
     private var lastArtist = ""
+    private var lastArtwork = ""
 
     private val nowPlayingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != NowPlayingStore.ACTION_NOW_PLAYING) return
             val title = intent.getStringExtra(NowPlayingStore.EXTRA_TITLE).orEmpty()
             val artist = intent.getStringExtra(NowPlayingStore.EXTRA_ARTIST).orEmpty()
-            if (title.isNotBlank()) showNowPlaying(title, artist)
+            val album = intent.getStringExtra(NowPlayingStore.EXTRA_ALBUM).orEmpty()
+            val art = intent.getStringExtra(NowPlayingStore.EXTRA_ART_URI).orEmpty()
+            val playing = intent.getBooleanExtra(NowPlayingStore.EXTRA_IS_PLAYING, true)
+            if (title.isNotBlank()) {
+                lastTitle = title
+                lastArtist = artist
+                if (art.isNotBlank()) lastArtwork = art
+                nowPlaying.show(title, artist, album, art.ifBlank { lastArtwork }, playing)
+            }
         }
     }
 
@@ -49,9 +50,11 @@ class MainActivity : Activity() {
                         const m=navigator.mediaSession&&navigator.mediaSession.metadata;
                         const mt=m&&m.title?m.title:'';
                         const ma=m&&m.artist?m.artist:'';
+                        const mal=m&&m.album?m.album:'';
+                        const aw=m&&m.artwork&&m.artwork.length?m.artwork[0].src:'';
                         const title=mt||document.querySelector('[data-testid*=\"title\" i],[class*=\"track-title\" i],[class*=\"song-title\" i]')?.textContent||document.querySelector('meta[property=\"og:title\"]')?.content||document.title||'';
                         const artist=ma||document.querySelector('[data-testid*=\"artist\" i],[class*=\"artist\" i],[class*=\"song-artist\" i]')?.textContent||'';
-                        return JSON.stringify({t:title.trim(),a:artist.trim()});
+                        return JSON.stringify({t:title.trim(),a:artist.trim(),al:mal.trim(),art:aw||''});
                     })()""".trimIndent()
                 ) { raw ->
                     try {
@@ -59,18 +62,21 @@ class MainActivity : Activity() {
                         val json = JSONObject(decoded)
                         val title = json.optString("t").trim()
                         val artist = json.optString("a").trim()
+                        val album = json.optString("al").trim()
+                        val artwork = json.optString("art").trim()
                         if (title.isNotEmpty() && title != "Eclipse Music" && title != "Eclipse TV") {
-                            showNowPlaying(title, artist)
-                            if (title != lastTitle || artist != lastArtist) {
+                            if (artwork.isNotBlank()) lastArtwork = artwork
+                            nowPlaying.show(title, artist, album, artwork.ifBlank { lastArtwork }, true)
+                            if (title != lastTitle || artist != lastArtist || artwork != lastArtwork) {
                                 lastTitle = title
                                 lastArtist = artist
-                                PlaybackBridge.updateMetadata(this@MainActivity, title, artist)
+                                PlaybackBridge.updateMetadata(this@MainActivity, title, artist, artwork.ifBlank { lastArtwork })
                             }
                         }
                     } catch (_: Exception) { }
                 }
             }
-            handler.postDelayed(this, 500)
+            handler.postDelayed(this, 700)
         }
     }
 
@@ -87,7 +93,7 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
-        buildNowPlayingOverlay(root)
+        nowPlaying = TvNowPlayingOverlay(root)
         setContentView(root)
         configureWebView()
         PlaybackBridge.connect(this)
@@ -102,59 +108,6 @@ class MainActivity : Activity() {
         handler.post(metadataPoll)
     }
 
-    private fun buildNowPlayingOverlay(root: FrameLayout) {
-        nowPlaying = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(44, 24, 44, 24)
-            setBackgroundColor(0xe6101014.toInt())
-            elevation = 18f
-        }
-        val lp = FrameLayout.LayoutParams(-1, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
-        lp.setMargins(32, 0, 32, 32)
-        root.addView(nowPlaying, lp)
-
-        val brand = TextView(this).apply {
-            text = "ECLIPSE TV   •   NOW PLAYING"
-            textSize = 12f
-            setTextColor(0xffa7a7b0.toInt())
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        nowTitle = TextView(this).apply {
-            textSize = 28f
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, 5, 0, 0)
-        }
-        nowArtist = TextView(this).apply {
-            textSize = 18f
-            setTextColor(0xffc7c7cf.toInt())
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        nowStatus = TextView(this).apply {
-            text = "●  PLAYING"
-            textSize = 12f
-            setTextColor(0xffdddddd.toInt())
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 12, 0, 0)
-        }
-        nowPlaying.addView(brand)
-        nowPlaying.addView(nowTitle)
-        nowPlaying.addView(nowArtist)
-        nowPlaying.addView(nowStatus)
-        nowPlaying.visibility = View.GONE
-    }
-
-    private fun showNowPlaying(title: String, artist: String) {
-        nowTitle.text = title
-        nowArtist.text = artist
-        nowArtist.visibility = if (artist.isBlank()) View.GONE else View.VISIBLE
-        nowStatus.text = "●  PLAYING"
-        nowPlaying.visibility = View.VISIBLE
-    }
-
     private fun configureWebView() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
@@ -165,7 +118,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.7"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.8"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
@@ -178,7 +131,7 @@ class MainActivity : Activity() {
     private fun startNativePlayback(url: String) {
         val title = lastTitle.takeIf { it.isNotBlank() }
         val artist = lastArtist.takeIf { it.isNotBlank() }
-        PlaybackBridge.playUrl(this, url, title, artist)
+        PlaybackBridge.playUrl(this, url, title, artist, lastArtwork.takeIf { it.isNotBlank() })
         handler.postDelayed({
             if (::webView.isInitialized) {
                 webView.evaluateJavascript(
@@ -218,6 +171,7 @@ class MainActivity : Activity() {
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.destroy()
+        nowPlaying.destroy()
         PlaybackBridge.release()
         super.onDestroy()
     }
