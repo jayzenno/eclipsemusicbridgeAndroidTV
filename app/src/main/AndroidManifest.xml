@@ -1,14 +1,21 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-feature android:name="android.software.leanback" android:required="true" />
-    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <application android:theme="@style/AppTheme" android:label="Eclipse TV" android:banner="@drawable/eclipse_banner" android:icon="@drawable/eclipse_icon" android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:screenOrientation="landscape" android:exported="true">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="app.eclipse.tv">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.EclipseTV">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
     </application>
+
 </manifest>

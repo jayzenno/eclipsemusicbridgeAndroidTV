@@ -1,1 +1,4 @@
-<resources><string name="app_name">Eclipse TV</string></resources>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Eclipse TV</string>
+</resources>
