@@ -25,32 +25,44 @@ class MainActivity : Activity() {
     private val metadataPoll = object : Runnable {
         override fun run() {
             if (::webView.isInitialized) captureMetadata(null)
-            handler.postDelayed(this, 500)
+            handler.postDelayed(this, 350)
         }
     }
 
     private fun captureMetadata(after: ((String?, String?, String?, String?) -> Unit)?) {
         webView.evaluateJavascript(
             """(function(){
-                const m=navigator.mediaSession&&navigator.mediaSession.metadata;
-                const media=document.querySelector('audio,video');
-                const pick=(selectors)=>{
+                const clean=v=>(v||'').replace(/\\s+/g,' ').trim();
+                const text=el=>clean(el&&(el.textContent||el.getAttribute('content')||el.getAttribute('aria-label')||el.getAttribute('title')));
+                const first=(selectors)=>{
                     for(const s of selectors){
-                        const el=document.querySelector(s);
-                        const v=el&&(el.textContent||el.getAttribute('content')||el.getAttribute('aria-label')||el.getAttribute('title'));
-                        if(v&&v.trim()) return v.trim();
+                        try { const el=document.querySelector(s); const v=text(el); if(v) return v; } catch(_) {}
                     }
                     return '';
                 };
-                const title=(m&&m.title)||
-                    (media&&(media.getAttribute('data-title')||media.getAttribute('title')||media.getAttribute('aria-label')))||
-                    pick(['[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]','[data-testid*=\"title\" i]','[class*=\"track-title\" i]','[class*=\"song-title\" i]','[class*=\"now-playing\" i] [class*=\"title\" i]']);
-                const artist=(m&&m.artist)||
-                    pick(['[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]','[data-testid*=\"artist\" i]','[class*=\"track-artist\" i]','[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]']);
-                const album=(m&&m.album)||'';
-                const artwork=(m&&m.artwork&&m.artwork.length)?(m.artwork[m.artwork.length-1].src||''):
-                    ((media&&(media.getAttribute('poster')||media.getAttribute('data-artwork')))||'');
-                return JSON.stringify({t:title||'',a:artist,al:album,art:artwork});
+                const m=navigator.mediaSession&&navigator.mediaSession.metadata;
+                const media=document.querySelector('audio,video');
+                const artwork=(m&&m.artwork&&m.artwork.length)
+                    ? (m.artwork[m.artwork.length-1].src||'')
+                    : ((media&&(media.getAttribute('poster')||media.getAttribute('data-artwork')))||'');
+                const title=clean(m&&m.title)||
+                    first([
+                        '[data-testid*=\"track-title\" i]','[data-testid*=\"song-title\" i]',
+                        '[data-testid*=\"now-playing-title\" i]','[data-testid*=\"current-track\" i]',
+                        '[class*=\"track-title\" i]','[class*=\"song-title\" i]',
+                        '[class*=\"now-playing\" i] [class*=\"title\" i]',
+                        '[aria-label*=\"Now playing\" i]'
+                    ]) || clean(document.querySelector('meta[property=\"og:title\"]')?.content);
+                const artist=clean(m&&m.artist)||
+                    first([
+                        '[data-testid*=\"track-artist\" i]','[data-testid*=\"song-artist\" i]',
+                        '[data-testid*=\"now-playing-artist\" i]','[class*=\"track-artist\" i]',
+                        '[class*=\"song-artist\" i]','[class*=\"now-playing\" i] [class*=\"artist\" i]'
+                    ]);
+                const album=clean(m&&m.album)||first(['[data-testid*=\"track-album\" i]','[class*=\"track-album\" i]']);
+                const generic=/^(eclipse|eclipse music|eclipse tv|music player)$/i;
+                const t=generic.test(title)?'':title;
+                return JSON.stringify({t:t,a:artist,al:album,art:artwork});
             })()""".trimIndent()
         ) { raw ->
             try {
@@ -82,7 +94,7 @@ class MainActivity : Activity() {
         val artist = artistRaw.trim()
         val album = albumRaw.trim()
         val artwork = artworkRaw.trim()
-        if (title.isBlank() || title.equals("Eclipse Music", true) || title.equals("Eclipse TV", true)) return
+        if (title.isBlank()) return
         val effectiveArtwork = artwork.ifBlank { lastArtwork }
         val changed = title != lastTitle || artist != lastArtist || album != lastAlbum || effectiveArtwork != lastArtwork
         if (!changed) return
