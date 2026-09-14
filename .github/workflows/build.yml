@@ -20,16 +20,13 @@ jobs:
           java-version: '17'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-      - name: Clean Build
-        run: gradle clean
       - name: Build APK
-        run: gradle assembleDebug --stacktrace --info 2>&1 | tee build.log
-      - name: Check for build failures
+        run: gradle assembleDebug --stacktrace --info --warning-mode all 2>&1 | tee build.log || true
+      - name: Show full build log on failure
         if: failure()
         run: |
-          echo "=== BUILD FAILED ==="
-          echo "Checking build log for root cause..."
-          tail -200 build.log
+          echo "=== FULL BUILD LOG ==="
+          cat build.log
       - name: Upload APK
         uses: actions/upload-artifact@v4
         if: success()
