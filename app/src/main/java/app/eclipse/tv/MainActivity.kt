@@ -63,9 +63,6 @@ class MainActivity : Activity() {
 
     private fun startNativePlayback(url: String) {
         android.util.Log.d("EclipseTV", "NATIVE_PLAYBACK $url")
-
-        // Start native playback immediately. Metadata is fetched in parallel so
-        // the WebView never adds a full JS round-trip to the audible start/skip path.
         PlaybackBridge.playUrl(this, url)
 
         val metadataScript = """
@@ -118,7 +115,7 @@ class MainActivity : Activity() {
         }, 80L)
     }
 
-    private fun dispatchEclipseTransport(action: String): Boolean {
+    private fun dispatchEclipseTransport(action: String) {
         val script = """
             (function(){
               var action='$action';
@@ -139,11 +136,11 @@ class MainActivity : Activity() {
               return 'false';
             })();
         """.trimIndent()
-        var handled = false
-        webView.evaluateJavascript(script) { result -> handled = result == "\"true\"" }
-        // The JS callback is asynchronous; the known Eclipse control is preferred.
-        // Return true here to prevent a second native transport command from racing it.
-        return true
+        webView.evaluateJavascript(script) { result ->
+            if (result != "\"true\"") {
+                if (action == "next") PlaybackBridge.next(this) else PlaybackBridge.previous(this)
+            }
+        }
     }
 
     private fun injectTvNavigation() {
@@ -167,16 +164,9 @@ class MainActivity : Activity() {
                 button,[role="button"]{min-height:48px;min-width:48px;}
                 input,select{min-height:48px;font-size:16px;}
                 img{image-rendering:auto;}
-                [class*="card"],[class*="Card"],[class*="tile"],[class*="Tile"]{
-                  scroll-margin:72px;
-                }
+                [class*="card"],[class*="Card"],[class*="tile"],[class*="Tile"]{scroll-margin:72px;}
               `;
               document.head.appendChild(s);
-
-              document.addEventListener('keydown',function(e){
-                if(e.key==='MediaTrackNext'){e.preventDefault();}
-                if(e.key==='MediaTrackPrevious'){e.preventDefault();}
-              },true);
             })();
         """.trimIndent()
         webView.evaluateJavascript(script, null)
@@ -215,8 +205,6 @@ class MainActivity : Activity() {
         handler.removeCallbacksAndMessages(null)
         streamCaptureClient.release()
         webView.destroy()
-        // Deliberately keep the MediaSession/ExoPlayer alive. Background audio must
-        // survive the Activity leaving the foreground.
         super.onDestroy()
     }
 }
