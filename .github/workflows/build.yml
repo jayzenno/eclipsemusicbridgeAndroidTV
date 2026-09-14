@@ -20,10 +20,13 @@ jobs:
           java-version: '17'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Clean Build
+        run: gradle clean
       - name: Build APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace --info
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: eclipse-tv-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
