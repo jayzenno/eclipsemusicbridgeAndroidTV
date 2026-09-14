@@ -51,10 +51,15 @@ object PlaybackBridge {
     fun updateMetadata(context: Context, title: String?, artist: String?, artwork: String? = null) {
         withController(context) { c ->
             val current = c.currentMediaItem ?: return@withController
-            val existingArt = current.mediaMetadata.artworkUri?.toString()
+            val old = current.mediaMetadata
+            val newTitle = title?.takeIf { it.isNotBlank() } ?: old.title?.toString() ?: "Eclipse"
+            val newArtist = artist?.takeIf { it.isNotBlank() } ?: old.artist?.toString() ?: "Eclipse"
+            val newArtwork = artwork?.takeIf { it.isNotBlank() } ?: old.artworkUri?.toString()
+            if (newTitle == old.title?.toString() && newArtist == old.artist?.toString() &&
+                newArtwork == old.artworkUri?.toString()) return@withController
             c.replaceMediaItem(
                 c.currentMediaItemIndex,
-                buildItem(current.localConfiguration?.uri.toString(), title, artist, artwork ?: existingArt, current.mediaId)
+                buildItem(current.localConfiguration?.uri.toString(), newTitle, newArtist, newArtwork, current.mediaId)
             )
         }
     }
@@ -64,6 +69,16 @@ object PlaybackBridge {
     fun playPause(context: Context) = withController(context) { if (it.isPlaying) it.pause() else it.play() }
     fun next(context: Context) = withController(context) { if (it.hasNextMediaItem()) it.seekToNext() }
     fun previous(context: Context) = withController(context) { if (it.hasPreviousMediaItem()) it.seekToPrevious() }
+
+    fun seekBy(context: Context, deltaMs: Long) = withController(context) {
+        val duration = it.duration
+        val target = (it.currentPosition + deltaMs).coerceAtLeast(0L)
+        if (duration > 0L) it.seekTo(target.coerceAtMost(duration)) else it.seekTo(target)
+    }
+
+    fun getPositionMs(): Long = controller?.currentPosition ?: 0L
+    fun getDurationMs(): Long = controller?.duration ?: 0L
+    fun isPlaying(): Boolean = controller?.isPlaying == true
 
     private fun buildItem(url: String, title: String?, artist: String?, artwork: String?, mediaId: String? = null): MediaItem {
         val metadata = MediaMetadata.Builder()
