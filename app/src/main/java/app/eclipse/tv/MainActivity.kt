@@ -11,7 +11,6 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import org.json.JSONObject
 
 class MainActivity : Activity() {
@@ -22,8 +21,6 @@ class MainActivity : Activity() {
     private var lastAlbum = ""
     private var lastArtwork = ""
     private var lastCapturedAudioUrl = ""
-    private var showingConnect = true
-    private lateinit var connectRoot: LinearLayout
 
     private val metadataPoll = object : Runnable {
         override fun run() {
@@ -109,37 +106,18 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
-
-        connectRoot = LinearLayout(this)
-        ConnectPairingScreen(connectRoot)
-        root.addView(connectRoot, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
 
         configureWebView()
         PlaybackBridge.connect(this)
 
-        connectRoot.isFocusable = true
-        connectRoot.isFocusableInTouchMode = true
-        connectRoot.setOnClickListener { enterWebPlayer() }
-        connectRoot.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN &&
-                (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
-                enterWebPlayer()
-                true
-            } else false
+        if (savedInstanceState != null) {
+            webView.restoreState(savedInstanceState)
+        } else {
+            webView.loadUrl("https://eclipsemusic.app/web/")
         }
-        connectRoot.requestFocus()
-
-        if (savedInstanceState != null) webView.restoreState(savedInstanceState)
-        handler.post(metadataPoll)
-    }
-
-    private fun enterWebPlayer() {
-        if (!showingConnect) return
-        showingConnect = false
-        connectRoot.visibility = View.GONE
-        if (webView.url == null) webView.loadUrl("https://eclipsemusic.app/web/")
         webView.requestFocus(View.FOCUS_DOWN)
+        handler.post(metadataPoll)
     }
 
     private fun configureWebView() {
@@ -152,7 +130,7 @@ class MainActivity : Activity() {
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        settings.userAgentString = settings.userAgentString + " EclipseTV/1.8"
+        settings.userAgentString = settings.userAgentString + " EclipseTV/1.9"
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         webView.isFocusable = true
@@ -174,19 +152,16 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && ::webView.isInitialized && !showingConnect) {
+        if (event.action == KeyEvent.ACTION_DOWN && ::webView.isInitialized) {
             if (RemotePlaybackController.handle(this, webView, event.keyCode)) return true
         }
         return super.dispatchKeyEvent(event)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (showingConnect) return super.onKeyDown(keyCode, event)
-            if (webView.canGoBack()) {
-                webView.goBack()
-                return true
-            }
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
+            webView.goBack()
+            return true
         }
         return super.onKeyDown(keyCode, event)
     }
