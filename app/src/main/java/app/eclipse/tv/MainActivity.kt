@@ -1,10 +1,6 @@
 package app.eclipse.tv
 
 import android.app.Activity
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -19,87 +15,68 @@ import org.json.JSONObject
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
-    private lateinit var nowPlaying: TvNowPlayingOverlay
     private val handler = Handler(Looper.getMainLooper())
     private var lastTitle = ""
     private var lastArtist = ""
     private var lastAlbum = ""
     private var lastArtwork = ""
-    private var lastPlaying = false
     private var lastCapturedAudioUrl = ""
-
-    private val nowPlayingReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != NowPlayingStore.ACTION_NOW_PLAYING) return
-            val title = intent.getStringExtra(NowPlayingStore.EXTRA_TITLE).orEmpty()
-            val artist = intent.getStringExtra(NowPlayingStore.EXTRA_ARTIST).orEmpty()
-            val album = intent.getStringExtra(NowPlayingStore.EXTRA_ALBUM).orEmpty()
-            val art = intent.getStringExtra(NowPlayingStore.EXTRA_ART_URI).orEmpty()
-            val playing = intent.getBooleanExtra(NowPlayingStore.EXTRA_IS_PLAYING, true)
-            if (title.isNotBlank()) {
-                val effectiveArt = art.ifBlank { lastArtwork }
-                val changed = title != lastTitle || artist != lastArtist || album != lastAlbum ||
-                    effectiveArt != lastArtwork || playing != lastPlaying
-                lastTitle = title
-                lastArtist = artist
-                lastAlbum = album
-                if (art.isNotBlank()) lastArtwork = art
-                lastPlaying = playing
-                if (changed) nowPlaying.show(title, artist, album, effectiveArt, playing)
-            }
-        }
-    }
 
     private val metadataPoll = object : Runnable {
         override fun run() {
             if (::webView.isInitialized) {
                 webView.evaluateJavascript(
                     """(function(){
-                        const m=navigator.mediaSession&&navigator.mediaSession.metadata;
-                        const mt=m&&m.title?m.title:'';
-                        const ma=m&&m.artist?m.artist:'';
-                        const mal=m&&m.album?m.album:'';
-                        const aw=m&&m.artwork&&m.artwork.length?m.artwork[0].src:'';
-                        const title=mt||document.querySelector('[data-testid*=\"title\" i],[class*=\"track-title\" i],[class*=\"song-title\" i]')?.textContent||document.querySelector('meta[property=\"og:title\"]')?.content||document.title||'';
-                        const artist=ma||document.querySelector('[data-testid*=\"artist\" i],[class*=\"artist\" i],[class*=\"song-artist\" i]')?.textContent||'';
-                        return JSON.stringify({t:title.trim(),a:artist.trim(),al:mal.trim(),art:aw||''});
+                        const m = navigator.mediaSession && navigator.mediaSession.metadata;
+                        const title = (m && m.title) || '';
+                        const artist = (m && m.artist) || '';
+                        const album = (m && m.album) || '';
+                        const artwork = (m && m.artwork && m.artwork.length) ? (m.artwork[m.artwork.length - 1].src || '') : '';
+                        return JSON.stringify({t:title,a:artist,al:album,art:artwork});
                     })()""".trimIndent()
                 ) { raw ->
                     try {
-                        val decoded = raw.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\"")
-                        val json = JSONObject(decoded)
-                        val title = json.optString("t").trim()
-                        val artist = json.optString("a").trim()
-                        val album = json.optString("al").trim()
-                        val artwork = json.optString("art").trim()
-                        if (title.isNotEmpty() && title != "Eclipse Music" && title != "Eclipse TV") {
-                            val effectiveArtwork = artwork.ifBlank { lastArtwork }
-                            val metadataChanged = title != lastTitle || artist != lastArtist ||
-                                album != lastAlbum || effectiveArtwork != lastArtwork
-                            if (metadataChanged) {
-                                lastTitle = title
-                                lastArtist = artist
-                                lastAlbum = album
-                                if (artwork.isNotBlank()) lastArtwork = artwork
-                                nowPlaying.show(title, artist, album, effectiveArtwork, PlaybackBridge.isPlaying() || lastPlaying)
-                                PlaybackBridge.updateMetadata(this@MainActivity, title, artist, effectiveArtwork)
-                            }
-                        }
-                    } catch (_: Exception) { }
+                        val decoded = JSONObject(raw).optString("t")
+                        val artist = JSONObject(raw).optString("a")
+                        val album = JSONObject(raw).optString("al")
+                        val artwork = JSONObject(raw).optString("art")
+                        publishMetadata(decoded, artist, album, artwork)
+                    } catch (_: Exception) {
+                        // WebView may return an escaped JSON string on some Chromium builds.
+                        try {
+                            val decoded = raw.removePrefix("\"").removeSuffix("\"")
+                                .replace("\\\"", "\"").replace("\\\\", "\\")
+                            val json = JSONObject(decoded)
+                            publishMetadata(
+                                json.optString("t"),
+                                json.optString("a"),
+                                json.optString("al"),
+                                json.optString("art")
+                            )
+                        } catch (_: Exception) { }
+                    }
                 }
-            }
-            handler.postDelayed(this, 700)
-        }
-    }
-
-    private val progressPoll = object : Runnable {
-        override fun run() {
-            if (::nowPlaying.isInitialized && nowPlaying.isVisible()) {
-                val duration = PlaybackBridge.getDurationMs()
-                if (duration > 0L) nowPlaying.updateProgress(PlaybackBridge.getPositionMs(), duration)
             }
             handler.postDelayed(this, 500)
         }
+    }
+
+    private fun publishMetadata(titleRaw: String, artistRaw: String, albumRaw: String, artworkRaw: String) {
+        val title = titleRaw.trim()
+        val artist = artistRaw.trim()
+        val album = albumRaw.trim()
+        val artwork = artworkRaw.trim()
+        if (title.isBlank() || title.equals("Eclipse Music", true) || title.equals("Eclipse TV", true)) return
+
+        val effectiveArtwork = artwork.ifBlank { lastArtwork }
+        val changed = title != lastTitle || artist != lastArtist || album != lastAlbum || effectiveArtwork != lastArtwork
+        if (!changed) return
+
+        lastTitle = title
+        lastArtist = artist
+        lastAlbum = album
+        if (artwork.isNotBlank()) lastArtwork = artwork
+        PlaybackBridge.updateMetadata(this, title, artist, effectiveArtwork)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,16 +92,10 @@ class MainActivity : Activity() {
         val root = FrameLayout(this)
         webView = WebView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
-        nowPlaying = TvNowPlayingOverlay(
-            root,
-            onPrevious = { RemotePlaybackController.triggerTrackAction(webView, false) },
-            onNext = { RemotePlaybackController.triggerTrackAction(webView, true) }
-        )
         setContentView(root)
+
         configureWebView()
         PlaybackBridge.connect(this)
-
-        registerReceiver(nowPlayingReceiver, IntentFilter(NowPlayingStore.ACTION_NOW_PLAYING), Context.RECEIVER_NOT_EXPORTED)
 
         if (savedInstanceState == null) {
             webView.loadUrl("https://eclipsemusic.app/web/")
@@ -132,7 +103,6 @@ class MainActivity : Activity() {
             webView.restoreState(savedInstanceState)
         }
         handler.post(metadataPoll)
-        handler.post(progressPoll)
     }
 
     private fun configureWebView() {
@@ -169,18 +139,17 @@ class MainActivity : Activity() {
         PlaybackBridge.playUrl(this, url, title, artist, lastArtwork.takeIf { it.isNotBlank() })
     }
 
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && ::webView.isInitialized) {
+            if (RemotePlaybackController.handle(this, webView, event.keyCode)) return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (nowPlaying.handleDpad(keyCode)) return true
-        if (RemotePlaybackController.handle(this, webView, keyCode)) return true
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (nowPlaying.isVisible()) {
-                nowPlaying.hide()
-                return true
-            }
-            if (webView.canGoBack()) {
-                webView.goBack()
-                return true
-            }
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
+            webView.goBack()
+            return true
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -203,11 +172,9 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        try { unregisterReceiver(nowPlayingReceiver) } catch (_: Exception) { }
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.destroy()
-        nowPlaying.destroy()
         PlaybackBridge.release()
         super.onDestroy()
     }
