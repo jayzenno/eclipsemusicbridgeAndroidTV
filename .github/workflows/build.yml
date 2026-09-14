@@ -2,6 +2,8 @@ name: Build Eclipse TV APK
 
 on:
   push:
+    branches: [ main, tv-stability-and-ui ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
