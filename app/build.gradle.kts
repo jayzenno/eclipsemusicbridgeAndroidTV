@@ -30,7 +30,8 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    // Keep Compose on a release line compatible with compileSdk 36 / AGP 8.9.
+    val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.ui:ui")
