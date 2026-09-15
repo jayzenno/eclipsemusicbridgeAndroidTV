@@ -30,7 +30,7 @@ android {
 }
 
 dependencies {
-    // Keep Compose on a release line compatible with compileSdk 36 / AGP 8.9.
+    // Keep Compose/Core on release lines compatible with the existing AGP 8.9 toolchain.
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.10.1")
@@ -40,7 +40,7 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.media3:media3-exoplayer:1.9.2")
     implementation("androidx.media3:media3-ui:1.9.2")
     implementation("androidx.media3:media3-session:1.9.2")
