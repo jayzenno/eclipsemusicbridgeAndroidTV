@@ -20,6 +20,42 @@ jobs:
           java-version: '17'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Prepare premium TV UI
+        if: github.ref == 'refs/heads/iptv-premium'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/tv/harboriptv/MainActivity.kt')
+          s = p.read_text()
+          s = s.replace('import androidx.compose.ui.viewinterop.AndroidView', 'import androidx.compose.ui.viewinterop.AndroidView\nimport androidx.compose.ui.input.key.KeyEventType\nimport androidx.compose.ui.input.key.onPreviewKeyEvent')
+          old = 'Box(Modifier.fillMaxSize().background(wallpaper(theme))) {'
+          new = '''Box(Modifier.fillMaxSize().background(wallpaper(theme)).focusable().onPreviewKeyEvent { event ->
+              if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+              when (event.key) {
+                  androidx.compose.ui.input.key.Key.DirectionDown -> {
+                      if (channels.isNotEmpty()) selected = (selected + 1) % channels.size
+                      true
+                  }
+                  androidx.compose.ui.input.key.Key.DirectionUp -> {
+                      if (channels.isNotEmpty()) selected = (selected - 1 + channels.size) % channels.size
+                      true
+                  }
+                  else -> false
+              }
+          }) {'''
+          if old not in s:
+              raise SystemExit('root Box anchor not found')
+          s = s.replace(old, new, 1)
+          old = 'HeroPlayer(player, channels.getOrNull(selected), theme, Modifier.fillMaxWidth().height(330.dp))'
+          new = '''Box(Modifier.fillMaxWidth().height(330.dp)) {
+              HeroPlayer(player, channels.getOrNull(selected), theme, Modifier.fillMaxSize())
+              PremiumChannelZapOverlay(channels.getOrNull(selected), theme, Modifier.align(Alignment.TopStart).padding(18.dp))
+          }'''
+          if old not in s:
+              raise SystemExit('HeroPlayer anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
       - name: Fix AndroidView call signature
         if: github.ref == 'refs/heads/iptv-premium'
         run: sed -i 's/AndroidView(Modifier.fillMaxSize(), factory =/AndroidView(factory =/' app/src/main/java/tv/harboriptv/MainActivity.kt
