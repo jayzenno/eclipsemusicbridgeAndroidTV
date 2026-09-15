@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -18,10 +17,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,14 +29,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -46,11 +39,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -71,12 +61,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
@@ -104,7 +91,7 @@ data class HarborTheme(
 private val themes = listOf(
     HarborTheme("Harbor", Color(0xFF080A10), Color(0xCC171B26), Color(0xFF7DD3FC), Color(0xFF38BDF8), 0),
     HarborTheme("Aurora", Color(0xFF090713), Color(0xCC1C1429), Color(0xFFA78BFA), Color(0xFF22D3EE), 1),
-    HarborTheme("OLED", Color.Black, Color(0xDD111111), Color(0xFFFFFFFF), Color(0xFF8B5CF6), 2),
+    HarborTheme("OLED", Color.Black, Color(0xDD111111), Color.White, Color(0xFF8B5CF6), 2),
     HarborTheme("Sunset", Color(0xFF12090A), Color(0xCC241518), Color(0xFFFF9F68), Color(0xFFFF5C8A), 3)
 )
 
@@ -122,9 +109,7 @@ fun HarborApp(context: Context) {
     val scope = rememberCoroutineScope()
     val theme = themes[themeIndex.coerceIn(themes.indices)]
 
-    val player = remember {
-        ExoPlayer.Builder(context).setHandleAudioBecomingNoisy(true).build()
-    }
+    val player = remember { ExoPlayer.Builder(context).setHandleAudioBecomingNoisy(true).build() }
     DisposableEffect(Unit) { onDispose { player.release() } }
 
     LaunchedEffect(selected, channels) {
@@ -137,42 +122,28 @@ fun HarborApp(context: Context) {
         }
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(wallpaper(theme))
-            .onPreviewKeyEvent {
-                if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionDown && !showSettings && !showSearch) {
-                    false
-                } else false
-            }
-    ) {
+    Box(Modifier.fillMaxSize().background(wallpaper(theme))) {
         Column(Modifier.fillMaxSize().padding(horizontal = 54.dp, vertical = 30.dp)) {
             Header(theme, onSettings = { showSettings = true }, onSearch = { showSearch = true })
             Spacer(Modifier.height(18.dp))
-            HeroPlayer(
-                player = player,
-                channel = channels.getOrNull(selected),
-                theme = theme,
-                modifier = Modifier.fillMaxWidth().height(330.dp)
-            )
+            HeroPlayer(player, channels.getOrNull(selected), theme, Modifier.fillMaxWidth().height(330.dp))
             Spacer(Modifier.height(22.dp))
             SectionTitle("Favoriten", Icons.Default.Favorite, theme)
             ChannelRail(
-                channels = channels.filter { it.id in favorites }.ifEmpty { channels.take(8) },
-                selected = channels.getOrNull(selected)?.id,
-                theme = theme,
-                onSelect = { channel -> selected = channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0) },
-                onFavorite = { channel -> favorites = if (channel.id in favorites) favorites - channel.id else favorites + channel.id }
+                channels.filter { it.id in favorites }.ifEmpty { channels.take(8) },
+                channels.getOrNull(selected)?.id,
+                theme,
+                onSelect = { selected = channels.indexOfFirst { it.id == it.id }.coerceAtLeast(0) },
+                onFavorite = { c -> favorites = if (c.id in favorites) favorites - c.id else favorites + c.id }
             )
             Spacer(Modifier.height(20.dp))
             SectionTitle("Alle Sender", Icons.Default.LiveTv, theme)
             ChannelRail(
-                channels = channels,
-                selected = channels.getOrNull(selected)?.id,
-                theme = theme,
-                onSelect = { channel -> selected = channels.indexOfFirst { it.id == channel.id }.coerceAtLeast(0) },
-                onFavorite = { channel -> favorites = if (channel.id in favorites) favorites - channel.id else favorites + channel.id }
+                channels,
+                channels.getOrNull(selected)?.id,
+                theme,
+                onSelect = { c -> selected = channels.indexOfFirst { it.id == c.id }.coerceAtLeast(0) },
+                onFavorite = { c -> favorites = if (c.id in favorites) favorites - c.id else favorites + c.id }
             )
             Spacer(Modifier.height(16.dp))
             if (status.isNotBlank()) Text(status, color = theme.accent, fontSize = 14.sp)
@@ -180,10 +151,7 @@ fun HarborApp(context: Context) {
 
         if (showSettings) {
             SettingsDialog(
-                prefs = prefs,
-                themeIndex = themeIndex,
-                theme = theme,
-                loading = loading,
+                prefs, themeIndex, theme, loading,
                 onTheme = { themeIndex = it; prefs.edit().putInt("theme", it).apply() },
                 onDismiss = { showSettings = false },
                 onLoad = { m3u, xtream, user, pass ->
@@ -199,10 +167,7 @@ fun HarborApp(context: Context) {
                             if (loaded.isNotEmpty()) {
                                 channels = loaded
                                 selected = 0
-                                prefs.edit().putString("m3u", m3u).apply()
-                                prefs.edit().putString("xtream", xtream).apply()
-                                prefs.edit().putString("user", user).apply()
-                                prefs.edit().putString("pass", pass).apply()
+                                prefs.edit().putString("m3u", m3u).putString("xtream", xtream).putString("user", user).putString("pass", pass).apply()
                                 status = "${loaded.size} Sender geladen"
                                 showSettings = false
                             } else status = "Keine Sender gefunden"
@@ -214,10 +179,10 @@ fun HarborApp(context: Context) {
             )
         }
         if (showSearch) {
-            SearchDialog(channels, theme, onDismiss = { showSearch = false }, onSelect = { c ->
+            SearchDialog(channels, theme, { showSearch = false }) { c ->
                 selected = channels.indexOfFirst { it.id == c.id }.coerceAtLeast(0)
                 showSearch = false
-            })
+            }
         }
     }
 }
@@ -236,11 +201,8 @@ private fun Header(theme: HarborTheme, onSettings: () -> Unit, onSearch: () -> U
 
 @Composable
 private fun HeroPlayer(player: ExoPlayer, channel: Channel?, theme: HarborTheme, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(24.dp)).background(Color.Black)) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = false; keepScreenOn = true } }
-        )
+    Box(modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).background(Color.Black)) {
+        AndroidView(Modifier.fillMaxSize(), factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = false; keepScreenOn = true } })
         if (channel?.url.isNullOrBlank()) {
             Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(theme.surface.copy(alpha = .9f), Color.Black)))) {
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -272,9 +234,9 @@ private fun SectionTitle(title: String, icon: androidx.compose.ui.graphics.vecto
 
 @Composable
 private fun ChannelRail(channels: List<Channel>, selected: String?, theme: HarborTheme, onSelect: (Channel) -> Unit, onFavorite: (Channel) -> Unit) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         items(channels, key = { it.id }) { channel ->
-            ChannelCard(channel, focused = channel.id == selected, theme = theme, onClick = { onSelect(channel) }, onFavorite = { onFavorite(channel) })
+            ChannelCard(channel, channel.id == selected, theme, { onSelect(channel) }, { onFavorite(channel) })
         }
     }
 }
@@ -287,23 +249,21 @@ private fun ChannelCard(channel: Channel, focused: Boolean, theme: HarborTheme, 
     val accent by animateColorAsState(if (active) theme.accent else Color.White.copy(alpha = .10f), tween(180), label = "focusColor")
     Box(
         Modifier.width(178.dp).height(106.dp).scale(scale).graphicsLayer { shadowElevation = if (active) 22f else 0f }
-            .clip(RoundedCornerShape(18.dp)).background(theme.surface)
-            .border(BorderStroke(if (active) 2.dp else 1.dp, accent), RoundedCornerShape(18.dp))
-            .onFocusChanged { hasFocus = it.isFocused }
-            .focusable().clickable { onClick() }
-            .padding(16.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).background(theme.surface)
+            .border(BorderStroke(if (active) 2.dp else 1.dp, accent), androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+            .onFocusChanged { hasFocus = it.isFocused }.focusable().clickable { onClick() }.padding(16.dp)
     ) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Box(Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(theme.accent.copy(alpha=.85f), theme.glow.copy(alpha=.3f))))) {
+                Box(Modifier.size(38.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(11.dp)).background(Brush.linearGradient(listOf(theme.accent.copy(alpha = .85f), theme.glow.copy(alpha = .3f))))) {
                     Text(channel.number.toString(), color = Color.Black, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Center))
                 }
                 Spacer(Modifier.weight(1f))
-                Icon(Icons.Default.Star, null, tint = if (active) theme.accent else Color.White.copy(alpha=.28f), modifier = Modifier.size(18.dp).clickable { onFavorite() })
+                Icon(Icons.Default.Star, null, tint = if (active) theme.accent else Color.White.copy(alpha = .28f), modifier = Modifier.size(18.dp).clickable { onFavorite() })
             }
             Spacer(Modifier.weight(1f))
             Text(channel.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1)
-            Text(channel.group, color = Color.White.copy(alpha=.5f), fontSize = 11.sp, maxLines = 1)
+            Text(channel.group, color = Color.White.copy(alpha = .5f), fontSize = 11.sp, maxLines = 1)
         }
     }
 }
@@ -326,12 +286,11 @@ private fun SettingsDialog(
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             item { Text("Playlist", color = theme.accent, fontWeight = FontWeight.Bold) }
             item { OutlinedTextField(m3u, { m3u = it }, label = { Text("M3U / M3U8 URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-            item { Text("oder Xtream Codes", color = Color.White.copy(alpha=.65f)) }
+            item { Text("oder Xtream Codes", color = Color.White.copy(alpha = .65f)) }
             item { OutlinedTextField(xtream, { xtream = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(user, { user = it }, label = { Text("Benutzer") }, singleLine = true, modifier = Modifier.weight(1f)); OutlinedTextField(pass, { pass = it }, label = { Text("Passwort") }, singleLine = true, modifier = Modifier.weight(1f)) } }
             item { Text("Theme", color = theme.accent, fontWeight = FontWeight.Bold) }
-            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) { themes.forEachIndexed { i, t -> OutlinedButton(onClick = { onTheme(i) }, border = BorderStroke(if (i == themeIndex) 2.dp else 1.dp, if (i == themeIndex) t.accent else Color.White.copy(alpha=.18f))) { Text(t.name) } } } }
-            item { Text("Focus-Glow: ${if (themeIndex == 0) "Harbor Blue" else themes[themeIndex].accent.toString()}", color = Color.White.copy(alpha=.5f), fontSize = 12.sp) }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState())) { themes.forEachIndexed { i, t -> OutlinedButton(onClick = { onTheme(i) }, border = BorderStroke(if (i == themeIndex) 2.dp else 1.dp, if (i == themeIndex) t.accent else Color.White.copy(alpha = .18f))) { Text(t.name) } } } }
         }
     }, confirmButton = { Button(enabled = !loading, onClick = { onLoad(m3u, xtream, user, pass) }) { Text(if (loading) "Lädt …" else "Playlist laden") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Schließen") } })
 }
