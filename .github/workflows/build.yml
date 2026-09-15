@@ -29,7 +29,7 @@ jobs:
           s = p.read_text()
           s = s.replace('import androidx.compose.ui.viewinterop.AndroidView', 'import androidx.compose.ui.viewinterop.AndroidView\nimport androidx.compose.ui.input.key.KeyEventType\nimport androidx.compose.ui.input.key.onPreviewKeyEvent')
           old = 'Box(Modifier.fillMaxSize().background(wallpaper(theme))) {'
-          new = '''Box(Modifier.fillMaxSize().background(wallpaper(theme)).focusable().onPreviewKeyEvent { event ->
+          new = '''Box(Modifier.fillMaxSize().background(wallpaper(theme)).onPreviewKeyEvent { event ->
               if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
               when (event.key) {
                   androidx.compose.ui.input.key.Key.DirectionDown -> {
