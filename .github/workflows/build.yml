@@ -20,6 +20,9 @@ jobs:
           java-version: '17'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Fix AndroidView call signature
+        if: github.ref == 'refs/heads/iptv-premium'
+        run: sed -i 's/AndroidView(Modifier.fillMaxSize(), factory =/AndroidView(factory =/' app/src/main/java/tv/harboriptv/MainActivity.kt
       - name: Build APK
         run: gradle assembleDebug --stacktrace
       - name: Upload APK
