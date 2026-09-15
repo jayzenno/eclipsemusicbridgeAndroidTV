@@ -1,10 +1,24 @@
 package tv.harboriptv
 
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
 
-// XMLTV parsing fix: RegexOption flags must be combined with +, not Kotlin boolean `or`.
+data class Channel(val id:String,val name:String,val group:String,val url:String,val logo:String="",val tvgId:String="",val number:Int=0)
+data class EpgEntry(val channelId:String,val title:String,val start:Long,val end:Long,val description:String="")
+
+object IptvRepository {
+ fun fetchText(url:String):String { val c=URL(url).openConnection() as HttpURLConnection; c.connectTimeout=12000;c.readTimeout=20000;c.setRequestProperty("User-Agent","HarborTV/0.2");return c.inputStream.bufferedReader().use{it.readText()}.also{c.disconnect()} }
+ fun parseM3u(text:String):List<Channel>{val lines=text.lineSequence().map{it.trim()}.filter{it.isNotEmpty()}.toList();val r=mutableListOf<Channel>();var p=emptyMap<String,String>();var n="";var i=1;for(line in lines){if(line.startsWith("#EXTINF",true)){val a=Regex("([\\w-]+)=(\\\"([^\\\"]*)\\\"|([^,\\s]*))").findAll(line).associate{it.groupValues[1] to (it.groupValues[3].ifEmpty{it.groupValues[2]})};p=a;n=line.substringAfterLast(",","Channel $i").trim()}else if(!line.startsWith("#")){r+=Channel(p["tvg-id"].orEmpty().ifEmpty{"ch-$i"},n.ifEmpty{"Channel $i"},p["group-title"].orEmpty().ifEmpty{"All Channels"},line,p["tvg-logo"].orEmpty(),p["tvg-id"].orEmpty(),i++);p=emptyMap()}};return r}
+ fun loadXtream(baseUrl:String,username:String,password:String):List<Channel>{val b=baseUrl.trimEnd('/');val api="$b/player_api.php?username=${URLEncoder.encode(username,"UTF-8")}&password=${URLEncoder.encode(password,"UTF-8")}&action=get_live_streams";val j=org.json.JSONArray(fetchText(api));return buildList{for(i in 0 until j.length()){val o=j.getJSONObject(i);add(Channel(o.optString("stream_id","xtream-$i"),o.optString("name","Channel ${i+1}"),o.optString("category_name","Live TV"),"$b/live/$username/$password/${o.optString("stream_id")}.ts",o.optString("stream_icon"),o.optString("epg_channel_id"),i+1))}}}
+ fun loadXtreamEpg(baseUrl:String,username:String,password:String,streamId:String):List<EpgEntry>{val b=baseUrl.trimEnd('/');val api="$b/player_api.php?username=${URLEncoder.encode(username,"UTF-8")}&password=${URLEncoder.encode(password,"UTF-8")}&action=get_short_epg&stream_id=${URLEncoder.encode(streamId,"UTF-8")}&limit=12";return parseXtreamEpg(fetchText(api),streamId)}
+ fun parseXtreamEpg(jsonText:String,channelId:String):List<EpgEntry>{val root=org.json.JSONObject(jsonText);val l=root.optJSONArray("epg_listings")?:return emptyList();return buildList{for(i in 0 until l.length()){val o=l.optJSONObject(i)?:continue;val s=parseXtreamDate(o.optString("start"));val e=parseXtreamDate(o.optString("end"));if(s>0&&e>s)add(EpgEntry(channelId,decodeHtml(o.optString("title")),s,e,decodeHtml(o.optString("description"))))}}.sortedBy{it.start}}
+ fun parseXmltv(xml:String):List<EpgEntry>{val r=mutableListOf<EpgEntry>();val pr=Regex("<programme\\b([^>]*)>(.*?)</programme>",RegexOption.IGNORE_CASE + RegexOption.DOT_MATCHES_ALL);val tr=Regex("<title[^>]*>(.*?)</title>",RegexOption.IGNORE_CASE + RegexOption.DOT_MATCHES_ALL);val dr=Regex("<desc[^>]*>(.*?)</desc>",RegexOption.IGNORE_CASE + RegexOption.DOT_MATCHES_ALL);val cr=Regex("\\bchannel\\s*=\\s*['\"]([^'\"]+)['\"]",RegexOption.IGNORE_CASE);val sr=Regex("\\bstart\\s*=\\s*['\"]([^'\"]+)['\"]",RegexOption.IGNORE_CASE);val er=Regex("\\bstop\\s*=\\s*['\"]([^'\"]+)['\"]",RegexOption.IGNORE_CASE);for(m in pr.findAll(xml)){val a=m.groupValues[1];val body=m.groupValues[2];val ch=cr.find(a)?.groupValues?.get(1).orEmpty();val s=parseXmltvDate(sr.find(a)?.groupValues?.get(1).orEmpty());val e=parseXmltvDate(er.find(a)?.groupValues?.get(1).orEmpty());val t=tr.find(body)?.groupValues?.get(1)?.let(::decodeHtml)?.stripTags().orEmpty();val d=dr.find(body)?.groupValues?.get(1)?.let(::decodeHtml)?.stripTags().orEmpty();if(ch.isNotBlank()&&s>0&&e>s&&t.isNotBlank())r+=EpgEntry(ch,t,s,e,d)};return r.sortedBy{it.start}}
+ private fun parseXmltvDate(v:String):Long{if(v.isBlank())return 0;for(p in listOf("yyyyMMddHHmmss Z","yyyyMMddHHmmssZ","yyyyMMddHHmmss"))try{val f=SimpleDateFormat(p,Locale.US);if(!p.contains('Z'))f.timeZone=TimeZone.getTimeZone("UTC");f.isLenient=true;return f.parse(v.trim())?.time?:0}catch(_:Exception){};return 0}
+ private fun parseXtreamDate(v:String):Long{for(p in listOf("yyyy-MM-dd HH:mm:ss","yyyy-MM-dd HH:mm","yyyy-MM-dd'T'HH:mm:ss"))try{val f=SimpleDateFormat(p,Locale.US);f.timeZone=TimeZone.getDefault();return f.parse(v.trim())?.time?:0}catch(_:Exception){};return 0}
+ private fun decodeHtml(v:String)=v.replace("&amp;","&").replace("&quot;","\"").replace("&#39;","'").replace("&apos;","'").replace("&lt;","<").replace("&gt;",">")
+ private fun String.stripTags()=replace(Regex("<[^>]*>"),"").trim()
+}
